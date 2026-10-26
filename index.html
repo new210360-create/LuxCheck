@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LuxCheck 辦公空間照明照度檢核模擬平台</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">◎</span> LuxCheck <small>辦公照明照度檢核</small></div>
+    <input id="projName" class="proj-name" value="未命名專案" title="專案名稱" />
+    <div class="actions">
+      <button id="btnNew" title="新專案">新專案</button>
+      <button id="btnOpen" title="開啟專案 (.json)">開啟</button>
+      <button id="btnSave" title="儲存專案 (.json)">儲存</button>
+      <span class="sep"></span>
+      <button id="btnUndo" title="復原 Ctrl+Z">↶</button>
+      <button id="btnRedo" title="重做 Ctrl+Y">↷</button>
+      <span class="sep"></span>
+      <button id="btnBom" title="匯出燈具清單 CSV">燈具清單</button>
+      <button id="btnPng" title="匯出平面照度圖 PNG">照度圖</button>
+      <button id="btnReport" class="primary" title="產生檢核報告（可列印 PDF）">檢核報告</button>
+    </div>
+    <input type="file" id="fileProject" accept=".json" hidden />
+    <input type="file" id="filePhoto" accept=".ies,.IES,.ldt,.LDT" multiple hidden />
+    <input type="file" id="fileLib" accept=".json" hidden />
+  </header>
+
+  <div class="layout">
+    <!-- ========== 左側：空間 / 標準 / 自動佈燈 ========== -->
+    <aside class="panel left">
+      <section>
+        <h3>空間設定</h3>
+        <div class="row"><label>形狀</label>
+          <select id="roomShape">
+            <option value="rect">矩形</option>
+            <option value="L">L 形</option>
+            <option value="custom">自訂多邊形</option>
+          </select>
+        </div>
+        <div class="grid2" id="rectFields">
+          <div class="row"><label>長 (m)</label><input type="number" id="roomL" step="0.1" min="1" /></div>
+          <div class="row"><label>寬 (m)</label><input type="number" id="roomW" step="0.1" min="1" /></div>
+        </div>
+        <div class="grid2" id="lFields">
+          <div class="row"><label>缺角長 (m)</label><input type="number" id="cutL" step="0.1" min="0" /></div>
+          <div class="row"><label>缺角寬 (m)</label><input type="number" id="cutW" step="0.1" min="0" /></div>
+        </div>
+        <div class="row col" id="polyFields">
+          <label>頂點座標（每行 x,y，單位 m）</label>
+          <textarea id="polyText" rows="5" spellcheck="false"></textarea>
+          <button id="btnApplyPoly" class="small">套用多邊形</button>
+        </div>
+        <div class="grid2">
+          <div class="row"><label>天花高 (m)</label><input type="number" id="roomH" step="0.05" min="2" /></div>
+          <div class="row"><label>工作面高 (m)</label><input type="number" id="roomWp" step="0.05" min="0" /></div>
+          <div class="row"><label>牆邊排除帶 (m)</label><input type="number" id="roomMargin" step="0.1" min="0" /></div>
+          <div class="row"><label>維護係數 MF</label><input type="number" id="roomMf" step="0.01" min="0.3" max="1" /></div>
+        </div>
+        <div class="sub">表面反射率</div>
+        <div class="slider-row"><label>天花</label><input type="range" id="rhoC" min="0" max="0.9" step="0.05" /><output id="rhoCv"></output></div>
+        <div class="slider-row"><label>牆面</label><input type="range" id="rhoW" min="0" max="0.9" step="0.05" /><output id="rhoWv"></output></div>
+        <div class="slider-row"><label>地面</label><input type="range" id="rhoF" min="0" max="0.9" step="0.05" /><output id="rhoFv"></output></div>
+        <div class="row"><label>計算格點</label>
+          <select id="gridSel">
+            <option value="0">自動</option>
+            <option value="0.1">0.10 m</option>
+            <option value="0.25">0.25 m</option>
+            <option value="0.5">0.50 m</option>
+            <option value="1">1.00 m</option>
+          </select>
+        </div>
+      </section>
+
+      <section>
+        <h3>檢核標準 <small>CNS 12112 / EN 12464-1</small></h3>
+        <div class="row"><label>空間類型</label><select id="stdSel"></select></div>
+        <div class="grid2">
+          <div class="row"><label>維持照度 Em (lx)</label><input type="number" id="tEm" step="10" min="0" /></div>
+          <div class="row"><label>UGR 上限</label><input type="number" id="tUGR" step="1" min="10" /></div>
+          <div class="row"><label>均齊度 U₀ ≥</label><input type="number" id="tU0" step="0.05" min="0" max="1" /></div>
+          <div class="row"><label>演色性 Ra ≥</label><input type="number" id="tRa" step="5" min="0" /></div>
+          <div class="row"><label>LPD 上限 (W/m²)</label><input type="number" id="tLpd" step="0.5" min="0" /></div>
+        </div>
+      </section>
+
+      <section>
+        <h3>自動佈燈</h3>
+        <div class="row"><label>燈具</label><select id="autoType"></select></div>
+        <div class="row"><label>模式</label>
+          <select id="autoMode">
+            <option value="target">自動達到目標照度與均齊度</option>
+            <option value="grid">指定排列（列 × 行）</option>
+          </select>
+        </div>
+        <div class="grid2" id="autoGridFields">
+          <div class="row"><label>X 向數量</label><input type="number" id="autoNx" min="1" value="6" /></div>
+          <div class="row"><label>Y 向數量</label><input type="number" id="autoNy" min="1" value="4" /></div>
+        </div>
+        <div class="grid2">
+          <div class="row"><label>燈具方向</label>
+            <select id="autoRot"><option value="auto">沿長邊</option><option value="0">0°（X 向）</option><option value="90">90°（Y 向）</option></select>
+          </div>
+          <div class="row"><label>安裝高度 (m)</label><input type="number" id="autoZ" step="0.05" placeholder="依安裝方式" /></div>
+        </div>
+        <div class="btns">
+          <button id="btnAuto" class="primary">自動佈燈（取代）</button>
+          <button id="btnClear" class="danger">清除全部燈具</button>
+        </div>
+        <p class="hint" id="autoInfo"></p>
+      </section>
+    </aside>
+
+    <!-- ========== 中央：視圖 ========== -->
+    <main class="center">
+      <div class="toolbar">
+        <div class="seg" id="toolSeg">
+          <button data-tool="select" class="on" title="選取 / 移動 (V)">選取</button>
+          <button data-tool="add" title="點擊放置燈具 (A)">放置燈具</button>
+          <button data-tool="pan" title="平移 (H，或按住空白鍵 / 右鍵)">平移</button>
+        </div>
+        <div class="seg" id="viewSeg">
+          <button data-view="2d" class="on">2D 平面</button>
+          <button data-view="3d">3D 檢視</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="vHeat" checked />熱圖</label>
+        <label class="chk"><input type="checkbox" id="vIso" checked />等照度線</label>
+        <label class="chk"><input type="checkbox" id="vVal" />數值</label>
+        <label class="chk"><input type="checkbox" id="vBeam" />光束範圍</label>
+        <label class="chk"><input type="checkbox" id="vObs" checked />UGR 觀察點</label>
+        <select id="vColor" title="色階">
+          <option value="target">色階：以目標照度為中心</option>
+          <option value="abs">色階：0 ~ 最大值</option>
+        </select>
+        <select id="vSnap" title="吸附">
+          <option value="0.05">吸附 5 cm</option>
+          <option value="0.1">吸附 10 cm</option>
+          <option value="0.3">吸附 30 cm</option>
+          <option value="0.6">吸附 60 cm（天花板模矩）</option>
+          <option value="0">不吸附</option>
+        </select>
+        <button id="btnFit" class="small" title="縮放至全圖 (F)">全圖</button>
+      </div>
+      <div class="viewport">
+        <div id="wrap2d" class="view-wrap"><canvas id="plan"></canvas></div>
+        <div id="wrap3d" class="view-wrap hidden"></div>
+        <div id="busy" class="busy hidden">計算中…</div>
+      </div>
+      <div class="statusbar">
+        <span id="stPos">x — , y —</span>
+        <span id="stLux">— lx</span>
+        <span id="stCalc"></span>
+        <span class="grow"></span>
+        <span class="keys">Del 刪除 ｜ Ctrl+D 複製 ｜ 方向鍵 微調 ｜ R 旋轉 90° ｜ Shift 加選 ｜ Alt 暫停吸附</span>
+      </div>
+    </main>
+
+    <!-- ========== 右側：結果 / 燈具 ========== -->
+    <aside class="panel right">
+      <section>
+        <h3>檢核結果 <span id="overall" class="badge"></span></h3>
+        <div class="kpis" id="kpis"></div>
+        <ul class="advice" id="advice"></ul>
+      </section>
+
+      <section id="selSection" class="hidden">
+        <h3>選取燈具 <small id="selCount"></small></h3>
+        <div class="row"><label>型號</label><select id="sType"></select></div>
+        <div class="grid2">
+          <div class="row" id="sXrow"><label>X (m)</label><input type="number" id="sX" step="0.05" /></div>
+          <div class="row" id="sYrow"><label>Y (m)</label><input type="number" id="sY" step="0.05" /></div>
+        </div>
+        <div class="slider-row big"><label>燈具高度</label><input type="range" id="sZr" min="1" max="12" step="0.05" /><input type="number" id="sZ" step="0.05" /><span class="unit">m</span></div>
+        <div class="slider-row big"><label>流明</label><input type="range" id="sLmr" min="100" max="20000" step="50" /><input type="number" id="sLm" step="50" /><span class="unit">lm</span></div>
+        <div class="slider-row big"><label>瓦數</label><input type="range" id="sWr" min="1" max="200" step="0.5" /><input type="number" id="sW" step="0.5" /><span class="unit">W</span></div>
+        <div class="slider-row big"><label>光束角</label><input type="range" id="sBr" min="10" max="150" step="1" /><input type="number" id="sB" step="1" /><span class="unit">°</span></div>
+        <div class="slider-row big"><label>投射傾角</label><input type="range" id="sTr" min="0" max="60" step="1" /><input type="number" id="sT" step="1" /><span class="unit">°</span></div>
+        <div class="slider-row big"><label>旋轉</label><input type="range" id="sRr" min="0" max="355" step="5" /><input type="number" id="sR" step="5" /><span class="unit">°</span></div>
+        <div class="slider-row big"><label>調光</label><input type="range" id="sDr" min="0" max="100" step="5" /><input type="number" id="sD" step="5" /><span class="unit">%</span></div>
+        <div class="row inline"><label class="chk"><input type="checkbox" id="sOn" />開燈</label><span class="hint" id="sEff"></span></div>
+        <div class="btns">
+          <button id="btnApplyType" title="將目前數值套用到同型號全部燈具">套用到同型號全部</button>
+          <button id="btnDup">複製</button>
+          <button id="btnDel" class="danger">刪除</button>
+        </div>
+      </section>
+
+      <section>
+        <h3>全部燈具批次調整</h3>
+        <div class="grid2">
+          <div class="row"><label>統一高度 (m)</label><input type="number" id="gZ" step="0.05" /></div>
+          <div class="row"><label>統一調光 (%)</label><input type="number" id="gD" step="5" min="0" max="100" /></div>
+        </div>
+        <div class="btns"><button id="btnGlobal" class="small">套用至全部燈具</button></div>
+      </section>
+
+      <section>
+        <h3>燈具庫 <small id="libCount"></small></h3>
+        <div class="btns">
+          <button id="btnImport" class="primary" title="匯入廠商配光檔 IES / LDT（可多選）">匯入 IES / LDT</button>
+          <button id="btnNewType">新增自訂</button>
+        </div>
+        <div class="lib" id="libList"></div>
+        <div class="polar-wrap">
+          <canvas id="polar" width="260" height="220"></canvas>
+          <div class="polar-legend"><span class="c0">━ C0-C180</span><span class="c90">━ C90-C270</span></div>
+        </div>
+        <div class="btns">
+          <button id="btnLibExport" class="small">匯出燈具庫</button>
+          <button id="btnLibImport" class="small">匯入燈具庫</button>
+          <button id="btnLibReset" class="small">還原預設</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- 燈具型號編輯 -->
+  <dialog id="typeDlg">
+    <form method="dialog" class="dlg">
+      <h3 id="typeDlgTitle">燈具型號</h3>
+      <div class="grid2">
+        <div class="row span2"><label>名稱</label><input id="tName" required /></div>
+        <div class="row"><label>類別</label><input id="tCat" /></div>
+        <div class="row"><label>廠牌 / 型號</label><input id="tBrand" /></div>
+        <div class="row"><label>流明 (lm)</label><input type="number" id="tLm" step="10" /></div>
+        <div class="row"><label>瓦數 (W)</label><input type="number" id="tW" step="0.5" /></div>
+        <div class="row"><label>色溫 (K)</label><input type="number" id="tCct" step="100" /></div>
+        <div class="row"><label>演色性 Ra</label><input type="number" id="tCri" step="1" /></div>
+        <div class="row"><label>發光長度 (m)</label><input type="number" id="tLen" step="0.01" /></div>
+        <div class="row"><label>發光寬度 (m)</label><input type="number" id="tWid" step="0.01" /></div>
+        <div class="row"><label>外型</label><select id="tShape"><option value="rect">方形 / 線型</option><option value="round">圓形</option></select></div>
+        <div class="row"><label>安裝方式</label>
+          <select id="tMount"><option value="recessed">崁入</option><option value="surface">吸頂</option><option value="pendant">吊掛</option><option value="track">軌道</option></select>
+        </div>
+        <div class="row"><label>吊掛長度 (m)</label><input type="number" id="tSusp" step="0.05" /></div>
+        <div class="row gen-only"><label>光束角 C0 (°)</label><input type="number" id="tBeam" step="1" /></div>
+        <div class="row gen-only"><label>光束角 C90 (°)</label><input type="number" id="tBeam90" step="1" placeholder="同 C0" /></div>
+        <div class="row gen-only"><label>上照比例 (%)</label><input type="number" id="tUp" step="5" min="0" max="90" /></div>
+      </div>
+      <p class="hint" id="tPhotoInfo"></p>
+      <div class="btns right">
+        <button value="cancel" formnovalidate>取消</button>
+        <button value="ok" class="primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Three.js（CDN，失敗不影響 2D） -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="js/photometry.js"></script>
+  <script src="js/library.js"></script>
+  <script src="js/standards.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/render2d.js"></script>
+  <script src="js/view3d.js"></script>
+  <script src="js/report.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
