@@ -112,7 +112,11 @@ h3 small { color: var(--muted); font-weight: 400; font-size: 11px; }
 .advice { margin: 10px 0 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.6; }
 .advice li.ok { color: var(--ok); }
 
-.lib { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-height: 300px; overflow-y: auto; }
+.cat-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.cat-tabs button { padding: 3px 7px; font-size: 11.5px; border-radius: 5px; }
+.cat-tabs button.on { background: #0c4a6e; border-color: #0369a1; color: #fff; }
+.chart-title { color: #cbd5e1; font-size: 11.5px; font-weight: 600; text-align: left; padding: 2px 4px 4px; }
+.lib { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-height: 280px; overflow-y: auto; }
 .lib-item {
   display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 6px 8px; border-radius: 6px;
   background: var(--panel2); border: 1px solid transparent; cursor: pointer;

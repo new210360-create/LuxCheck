@@ -196,14 +196,25 @@
       </section>
 
       <section>
-        <h3>燈具庫 <small id="libCount"></small></h3>
+        <h3>舞光 / 常用燈具庫 <small id="libCount"></small></h3>
         <div class="btns">
           <button id="btnImport" class="primary" title="匯入廠商配光檔 IES / LDT（可多選）">匯入 IES / LDT</button>
           <button id="btnNewType">新增自訂</button>
         </div>
+        <div class="cat-tabs" id="catTabs">
+          <button data-cat="all" class="on">全部</button>
+          <button data-cat="平板燈">平板燈</button>
+          <button data-cat="9.5cm崁燈">9.5崁燈</button>
+          <button data-cat="12cm崁燈">12崁燈</button>
+          <button data-cat="15cm崁燈">15崁燈</button>
+          <button data-cat="投射燈">投射燈</button>
+        </div>
         <div class="lib" id="libList"></div>
         <div class="polar-wrap">
-          <canvas id="polar" width="260" height="220"></canvas>
+          <div class="chart-title">單燈距離光照圖（1m / 2m / 3m 光圈與中心照度）</div>
+          <canvas id="coneChart" width="286" height="210"></canvas>
+          <div class="chart-title" style="margin-top:6px">配光曲線圖（極座標 cd）</div>
+          <canvas id="polar" width="260" height="200"></canvas>
           <div class="polar-legend"><span class="c0">━ C0-C180</span><span class="c90">━ C90-C270</span></div>
         </div>
         <div class="btns">

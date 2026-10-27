@@ -33,7 +33,7 @@
       library: clone(LX.DEFAULT_LIBRARY),
       fixtures: [],
     };
-    const type = pr.library.find((t) => t.id === 'panel-6060-ugr19');
+    const type = pr.library.find((t) => t.id === 'dl-panel-6060-ugr19') || pr.library[0];
     pr.fixtures = LX.calc.autoLayout(pr, type, { targetU0: std.U0 });
     return pr;
   }
@@ -44,6 +44,7 @@
     selection: new Set(),
     tool: 'select',
     activeType: null,
+    activeCat: 'all',
     addRot: 0,
     view: { heatmap: true, isolux: true, values: false, beams: false, observers: true, colorMode: 'target', snap: 0.05, mode: '2d' },
     result: null,
@@ -54,7 +55,13 @@
       let saved = null;
       try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { saved = null; }
       this.project = saved && saved.room && saved.library ? saved : defaultProject();
-      this.activeType = (this.project.library.find((t) => t.id === 'panel-6060-ugr19') || this.project.library[0]).id;
+      // 同步最新舞光預設燈具庫
+      for (const d of LX.DEFAULT_LIBRARY) {
+        if (!this.project.library.some((x) => x.id === d.id)) {
+          this.project.library.push(clone(d));
+        }
+      }
+      this.activeType = (this.project.library.find((t) => t.id === 'dl-panel-6060-ugr19') || this.project.library[0]).id;
       this.plan = new LX.PlanView($('plan'), this);
       this.v3d = new LX.View3D($('wrap3d'), this);
       bindUI();
@@ -387,7 +394,7 @@
       const f0 = sel[0];
       $('sEff').textContent = `光效 ${fmt(f0.watts > 0 ? f0.lumens / f0.watts : 0)} lm/W · 距工作面 ${fmt(f0.z - app.project.room.wp, 2)} m`;
     }
-    if (key === 'beam') renderPolar();
+    renderPolar();
     app.requestCompute(!final);
   }
 
@@ -395,15 +402,17 @@
   function typeBeam(t) { return Math.round(LX.calc.baseTable(t).beam); }
 
   function renderLibrary() {
-    const lib = app.project.library;
-    $('libCount').textContent = `${lib.length} 款`;
+    const allLib = app.project.library;
+    const cat = app.activeCat || 'all';
+    const lib = cat === 'all' ? allLib : allLib.filter((t) => t.category === cat);
+    $('libCount').textContent = `${lib.length} / ${allLib.length} 款`;
     const counts = {};
     app.project.fixtures.forEach((f) => { counts[f.typeId] = (counts[f.typeId] || 0) + 1; });
     $('libList').innerHTML = lib.map((t) => `
       <div class="lib-item ${t.id === app.activeType ? 'on' : ''}" data-id="${t.id}">
         <div class="n">${esc(t.name)}${t.source ? `<span class="tag">${t.source}</span>` : ''}${counts[t.id] ? `<span class="tag" style="background:#14532d;color:#bbf7d0">×${counts[t.id]}</span>` : ''}</div>
         <div class="ops"><button data-op="edit" title="編輯">✎</button><button data-op="del" title="刪除">✕</button></div>
-        <div class="m">${t.lumens} lm · ${t.watts} W · ${typeBeam(t)}° · ${t.cct || '—'}K · Ra${t.cri || '—'} · ${mountName(t.mount)}</div>
+        <div class="m">${t.cutout ? esc(t.cutout) + ' · ' : ''}${t.lumens} lm · ${t.watts} W · ${typeBeam(t)}° · ${t.cct || '—'}K · Ra${t.cri || '—'}</div>
       </div>`).join('');
   }
   function mountName(m) { return { recessed: '崁入', surface: '吸頂', pendant: '吊掛', track: '軌道' }[m] || m; }
@@ -427,8 +436,135 @@
     renderPolar();
   }
 
+  /** 單燈距離光照圖（1m / 2m / 3m 光錐直徑與中心照度 + 地面光斑分布） */
+  function renderConeChart() {
+    const cv = $('coneChart');
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+    const sel = app.selected();
+    const f = sel[0];
+    const t = app.typeById(f ? f.typeId : app.activeType);
+    if (!t) return;
+    const lumens = (f ? f.lumens : t.lumens) * (f && f.dim != null ? f.dim / 100 : 1);
+    const beam = f ? f.beam : typeBeam(t);
+    const tilt = f ? (f.tilt || 0) : 0;
+    const tbl = LX.calc.tableFor(t, beam);
+    const I0 = Math.max(1, LX.photometry.lookup(tbl, 0, 0) * (lumens / 1000));
+    const halfRad = Math.min(82, Math.max(5, beam / 2)) * Math.PI / 180;
+
+    // 左側：1m / 2m / 3m 光錐照度圖
+    const cx = 86, topY = 18, botY = H - 22, coneH = botY - topY;
+    const maxR = 64;
+    const r3 = Math.min(maxR, Math.tan(halfRad) * 32);
+
+    // 光錐漸層填色
+    const grad = ctx.createLinearGradient(cx, topY, cx, botY);
+    grad.addColorStop(0, 'rgba(253, 224, 71, 0.85)');
+    grad.addColorStop(0.45, 'rgba(250, 204, 21, 0.35)');
+    grad.addColorStop(1, 'rgba(56, 189, 248, 0.08)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY);
+    ctx.lineTo(cx - r3, botY);
+    ctx.lineTo(cx + r3, botY);
+    ctx.closePath();
+    ctx.fill();
+
+    // 光錐邊界線
+    ctx.strokeStyle = 'rgba(253, 224, 71, 0.7)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY); ctx.lineTo(cx - r3, botY);
+    ctx.moveTo(cx, topY); ctx.lineTo(cx + r3, botY);
+    ctx.stroke();
+
+    // 燈具發光點
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath(); ctx.arc(cx, topY, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${Math.round(lumens)} lm · ${Math.round(beam)}°`, cx, 11);
+
+    // 1m, 2m, 3m 截面橢圓與數值
+    [1, 2, 3].forEach((d) => {
+      const y = topY + (d / 3) * coneH;
+      const rx = (d / 3) * r3;
+      const dia = 2 * d * Math.tan(halfRad);
+      const emax = Math.round(I0 / (d * d));
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(cx, y, Math.max(4, rx), 4, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#cbd5e1';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${d}m`, cx - rx - 5, y + 3);
+      ctx.fillStyle = '#fde047';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${emax} lx`, cx, y - 5);
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Ø${dia.toFixed(1)}m`, cx + rx + 4, y + 3);
+    });
+
+    // 右側：單燈於工作面高度之地面光斑熱圖 (4m × 4m)
+    const fx0 = 186, fy0 = 22, fSize = 88;
+    const hMount = Math.max(0.5, (f ? f.z : LX.calc.defaultMountHeight(app.project, t)) - app.project.room.wp);
+    const N = 44, span = 4.0; // -2m .. +2m
+    const off = document.createElement('canvas');
+    off.width = N; off.height = N;
+    const octx = off.getContext('2d');
+    const img = octx.createImageData(N, N);
+    const eCenter = I0 / (hMount * hMount);
+    const tiltRad = tilt * Math.PI / 180;
+    const ct = Math.cos(tiltRad), st = Math.sin(tiltRad);
+    for (let j = 0; j < N; j++) {
+      const wy = ((j + 0.5) / N - 0.5) * span;
+      for (let i = 0; i < N; i++) {
+        const wx = ((i + 0.5) / N - 0.5) * span;
+        const dz = -hMount;
+        const d2 = wx * wx + wy * wy + dz * dz;
+        const dist = Math.sqrt(d2);
+        const y2 = wy * ct + dz * st;
+        const z2 = -wy * st + dz * ct;
+        const gDeg = Math.acos(Math.max(-1, Math.min(1, -z2 / dist))) * 180 / Math.PI;
+        const cDeg = Math.atan2(y2, wx) * 180 / Math.PI;
+        const I = LX.photometry.lookup(tbl, cDeg, gDeg) * (lumens / 1000);
+        const E = (I * (hMount / dist)) / d2;
+        const [r, g, b] = LX.render.turbo(E / Math.max(100, eCenter));
+        const idx = (j * N + i) * 4;
+        img.data[idx] = r; img.data[idx + 1] = g; img.data[idx + 2] = b; img.data[idx + 3] = 255;
+      }
+    }
+    octx.putImageData(img, 0, 0);
+    ctx.drawImage(off, fx0, fy0, fSize, fSize);
+    ctx.strokeStyle = '#334155';
+    ctx.strokeRect(fx0, fy0, fSize, fSize);
+
+    // 光斑資訊文字
+    ctx.fillStyle = '#cbd5e1';
+    ctx.textAlign = 'center';
+    ctx.font = '10px system-ui';
+    ctx.fillText(`工作面光斑 (4×4m)`, fx0 + fSize / 2, fy0 - 5);
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(`距桌面 h=${hMount.toFixed(2)}m`, fx0 + fSize / 2, fy0 + fSize + 14);
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(`中心 ${Math.round(eCenter)} lx`, fx0 + fSize / 2, fy0 + fSize + 28);
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillText(`光圈 Ø${(2 * hMount * Math.tan(halfRad)).toFixed(2)}m`, fx0 + fSize / 2, fy0 + fSize + 42);
+    if (t.cutout) {
+      ctx.fillStyle = '#a7f3d0';
+      ctx.fillText(t.cutout, fx0 + fSize / 2, fy0 + fSize + 56);
+    }
+  }
+
   /** 配光曲線（極座標） */
   function renderPolar() {
+    renderConeChart();
     const cv = $('polar');
     const ctx = cv.getContext('2d');
     const W = cv.width, H = cv.height;
@@ -779,7 +915,16 @@
       app.commit(); app.onSelectionChanged(); app.requestCompute(false);
     });
 
-    // 燈具庫
+    // 燈具庫分類切換
+    if ($('catTabs')) {
+      $('catTabs').addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-cat]');
+        if (!b) return;
+        app.activeCat = b.dataset.cat;
+        document.querySelectorAll('#catTabs button').forEach((x) => x.classList.toggle('on', x === b));
+        renderLibrary();
+      });
+    }
     $('libList').addEventListener('click', (e) => {
       const item = e.target.closest('.lib-item');
       if (!item) return;
