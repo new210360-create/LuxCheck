@@ -152,11 +152,22 @@
     const room = project.room;
     const poly = room.polygon;
     const b = polyBounds(poly);
-    const sp = opts.spacing || chooseSpacing(room, b);
+    const allDesks = LX.cad && LX.cad.allDesks ? LX.cad.allDesks(project) : [...(project.cad?.desks || []), ...(project.desks || [])];
+    const zoneMode = LX.cad && LX.cad.hasZoneMode ? LX.cad.hasZoneMode(project) : Boolean(project.cad || allDesks.length);
+    let sp = opts.spacing || chooseSpacing(room, b);
+    if (zoneMode && !room.grid && !opts.spacing) {
+      const deskSize = Math.min(...allDesks.map(d => { const db = polyBounds(d.polygon); return Math.min(db.w, db.h); }), 1.5);
+      sp = Math.max(Math.sqrt(b.w * b.h / 60000), Math.min(sp, Math.max(0.05, deskSize / 3)));
+    }
     const nx = Math.max(2, Math.round(b.w / sp));
     const ny = Math.max(2, Math.round(b.h / sp));
+    if (nx * ny > 250000) throw Error('計算格點超過 250,000 點，請加大格點間距或縮小空間。');
     const dx = b.w / nx, dy = b.h / ny;
     const values = new Float32Array(nx * ny);
+    const heights = new Float32Array(nx * ny);
+    const surfaceKinds = new Uint8Array(nx * ny);
+    const deskIds = new Array(nx * ny);
+    const floorDirect = zoneMode ? new Float32Array(nx * ny) : null;
     const mask = new Uint8Array(nx * ny); // 0 外部, 1 房間內, 2 計算區（排除牆邊帶）
     const margin = room.margin || 0;
     const zw = room.wp;
@@ -168,23 +179,32 @@
         const x = b.minX + (i + 0.5) * dx;
         if (!pointInPoly(x, y, poly)) continue;
         mask[j * nx + i] = margin > 0 && distToPoly(x, y, poly) < margin ? 1 : 2;
+        const surface = zoneMode && LX.cad ? LX.cad.surfaceAt(project, x, y) : { height: zw, kind: 'uniform' };
+        heights[j * nx + i] = surface.height;
+        surfaceKinds[j * nx + i] = surface.kind === 'desk' ? 1 : 0;
+        deskIds[j * nx + i] = surface.desk?.id || null;
       }
     }
 
     // 直接光
     for (const s of sources) {
-      const dz = zw - s.z;
-      if (dz >= 0) continue;
-      const dz2 = dz * dz;
       for (let j = 0; j < ny; j++) {
         const yy = b.minY + (j + 0.5) * dy - s.y;
         for (let i = 0; i < nx; i++) {
           const idx = j * nx + i;
           if (!mask[idx]) continue;
+          const dz = heights[idx] - s.z;
+          if (dz >= 0) continue;
+          const dz2 = dz * dz;
           const xx = b.minX + (i + 0.5) * dx - s.x;
           const d2 = xx * xx + yy * yy + dz2;
           const I = intensityToward(s, xx, yy, dz)[0];
           if (I > 0) values[idx] += (I * (-dz / Math.sqrt(d2))) / d2;
+          if (floorDirect) {
+            const fdz = -s.z, fd2 = xx * xx + yy * yy + fdz * fdz;
+            const fi = surfaceKinds[idx] ? intensityToward(s, xx, yy, fdz)[0] : I;
+            if (fi > 0) floorDirect[idx] += (fi * (-fdz / Math.sqrt(fd2))) / fd2;
+          }
         }
       }
     }
@@ -194,7 +214,7 @@
     const perim = polyPerimeter(poly);
     const cell = dx * dy;
     let fluxWP = 0;
-    for (let i = 0; i < values.length; i++) if (mask[i]) fluxWP += values[i] * cell;
+    for (let i = 0; i < values.length; i++) if (mask[i]) fluxWP += (floorDirect ? floorDirect[i] : values[i]) * cell;
     let fluxDown = 0, fluxUp = 0;
     for (const s of sources) {
       const total = s.k * 1000;
@@ -214,13 +234,17 @@
     }
 
     // 統計（計算區）
-    let sum = 0, n = 0, mn = Infinity, mx = 0;
+    const deskTarget = project.target?.Em || 500;
+    const flTarget = project.floorTarget || 100;
+    let sum = 0, n = 0, mn = Infinity, mx = 0, passN = 0, beamN = 0;
     for (let i = 0; i < values.length; i++) {
       if (mask[i] !== 2) continue;
       const v = values[i];
       sum += v; n++;
       if (v < mn) mn = v;
       if (v > mx) mx = v;
+      if (v >= deskTarget * 0.95) passN++;
+      if (v >= deskTarget * 0.8) beamN++;
     }
     if (!n) {
       // 計算區過小時退回整個房間
@@ -228,22 +252,66 @@
         if (!mask[i]) continue;
         const v = values[i];
         sum += v; n++; if (v < mn) mn = v; if (v > mx) mx = v;
+        if (v >= deskTarget * 0.95) passN++;
+        if (v >= deskTarget * 0.8) beamN++;
       }
     }
-    const Eavg = n ? sum / n : 0;
+    let Eavg = n ? sum / n : 0;
     if (!isFinite(mn)) mn = 0;
+    let coverage = n ? (passN / n) * 100 : 0;
+    let beamCoverage = n ? (beamN / n) * 100 : 0;
 
+    // CAD / Manual Desks use actual desk polygons at 0.75 m; remaining samples are at floor level.
+    const blank = () => ({ n: 0, sum: 0, Emin: Infinity, Emax: 0, Eavg: 0, U0: 0, passN: 0, beamN: 0, coverage: 0, beamCoverage: 0 });
+    const surfaceStats = { desk: blank(), floor: blank() };
+    const deskStats = allDesks.map(d => ({ ...blank(), id: d.id, name: d.name, height: d.height ?? 0.75, manual: !!d.manual }));
+    const deskMap = new Map(deskStats.map(d => [d.id, d]));
+    function accumulate(s, v, tgt) {
+      if (!s) return;
+      s.n++; s.sum += v;
+      s.Emin = Math.min(s.Emin, v);
+      s.Emax = Math.max(s.Emax, v);
+      if (v >= tgt * 0.95) s.passN++;
+      if (v >= tgt * 0.8) s.beamN++;
+    }
+    if (zoneMode) {
+      for (let i = 0; i < values.length; i++) if (mask[i]) {
+        // Desk tasks retain edge samples, while wall exclusion applies to floor circulation.
+        if (surfaceKinds[i]) {
+          accumulate(surfaceStats.desk, values[i], deskTarget);
+          accumulate(deskMap.get(deskIds[i]), values[i], deskTarget);
+        } else if (mask[i] === 2) {
+          accumulate(surfaceStats.floor, values[i], flTarget);
+        }
+      }
+      for (const s of [surfaceStats.desk, surfaceStats.floor, ...deskStats]) {
+        s.Eavg = s.n ? s.sum / s.n : 0;
+        s.Emin = s.n ? s.Emin : 0;
+        s.U0 = s.Eavg ? s.Emin / s.Eavg : 0;
+        s.coverage = s.n ? (s.passN / s.n) * 100 : 0;
+        s.beamCoverage = s.n ? (s.beamN / s.n) * 100 : 0;
+      }
+      const primary = allDesks.length ? surfaceStats.desk : surfaceStats.floor;
+      Eavg = primary.Eavg; mn = primary.Emin; mx = primary.Emax;
+      coverage = primary.coverage; beamCoverage = primary.beamCoverage;
+    }
+
+    let gridMax = 0; for (let i = 0; i < values.length; i++) if (mask[i]) gridMax = Math.max(gridMax, values[i]);
     const totalW = project.fixtures.reduce((a, f) => a + (f.on === false ? 0 : f.watts * (f.dim == null ? 1 : f.dim / 100)), 0);
     const totalLm = project.fixtures.reduce((a, f) => a + (f.on === false ? 0 : f.lumens * (f.dim == null ? 1 : f.dim / 100)), 0);
     const ugr = opts.skipUGR ? null : computeUGR(project, sources, Eind, b);
 
     return {
-      grid: { nx, ny, dx, dy, x0: b.minX, y0: b.minY, values, mask },
+      grid: { nx, ny, dx, dy, x0: b.minX, y0: b.minY, values, mask, heights, surfaceKinds },
+      surfaceStats, deskStats, gridMax, zoneMode,
+      primaryTarget: zoneMode && !allDesks.length ? flTarget : project.target.Em,
+      primaryU0: zoneMode && !allDesks.length ? 0.4 : project.target.U0,
       bounds: b,
       Eavg, Emin: mn, Emax: mx,
       U0: Eavg > 0 ? mn / Eavg : 0,
       Ud: mx > 0 ? mn / mx : 0,
-      Edirect: nIn ? Edsum / nIn : 0,
+      coverage, beamCoverage,
+      Edirect: zoneMode ? Math.max(0, Eavg - Eind) : (nIn ? Edsum / nIn : 0),
       Eind,
       area, perim,
       totalW, totalLm,
@@ -252,6 +320,7 @@
       count: project.fixtures.filter((f) => f.on !== false).length,
       ugr,
       sources: sources.length,
+      lightSources: sources,
       spacing: Math.max(dx, dy),
     };
   }
@@ -359,7 +428,7 @@
     opts = opts || {};
     const b = polyBounds(project.room.polygon);
     if (opts.nx && opts.ny) return gridLayout(project, type, opts.nx, opts.ny, opts);
-    const target = opts.target || project.target.Em;
+    const target = opts.target || (project.cad&&!project.cad.desks.length?(project.floorTarget||100):project.target.Em);
     const targetU0 = opts.targetU0 || 0;
     const aspect = b.w / b.h;
     const rot = opts.rot != null ? opts.rot : (b.w >= b.h ? 0 : 90);
@@ -399,8 +468,120 @@
     return best || fallback || gridLayout(project, type, cands[Math.min(cands.length - 1, start)].nx, cands[Math.min(cands.length - 1, start)].ny, Object.assign({}, opts, { rot }));
   }
 
+  /** 依辦公桌中心對位佈燈（自動在每張辦公桌上方配置燈具並補足目標照度與覆蓋率） */
+  function layoutOverDesks(project, type, opts) {
+    opts = opts || {};
+    const desks = LX.cad && LX.cad.allDesks ? LX.cad.allDesks(project) : [...(project.cad?.desks || []), ...(project.desks || [])];
+    if (!desks.length) return autoLayout(project, type, opts);
+    const poly = project.room.polygon;
+    const b = polyBounds(poly);
+    const target = opts.target || project.target?.Em || 500;
+    const rot = opts.rot != null ? opts.rot : (b.w >= b.h ? 0 : 90);
+    const zMount = opts.z != null ? opts.z : defaultMountHeight(project, type);
+    const hgt = Math.max(0.5, zMount - 0.75);
+    const tbl = baseTable(type);
+    const i0 = Math.max(50, P.lookup(tbl, 0, 0) * (type.lumens / 1000) * (project.room.mf || 0.8));
+    const singlePeakLux = i0 / (hgt * hgt);
+    // 估算每張辦公桌需要對位幾盞燈才能達到目標照度與 ≥80% 覆蓋率
+    const basePerDesk = Math.max(1, Math.min(6, Math.ceil((target * 1.15) / Math.max(50, singlePeakLux))));
+
+    const buildForCount = (mult) => {
+      const out = [];
+      for (const d of desks) {
+        const db = polyBounds(d.polygon);
+        const cx = (db.minX + db.maxX) / 2, cy = (db.minY + db.maxY) / 2;
+        const horiz = db.w >= db.h;
+        const nL = Math.max(mult, Math.round(Math.max(db.w, db.h) / 1.3) * mult);
+        if (nL <= 1) {
+          if (pointInPoly(cx, cy, poly)) out.push(makeFixture(project, type, cx, cy, { rot, z: opts.z }));
+        } else {
+          // 沿桌面長軸與寬軸均勻對位配置
+          const nx = horiz ? Math.ceil(nL / (mult > 2 ? 2 : 1)) : (mult > 2 ? 2 : 1);
+          const ny = horiz ? (mult > 2 ? 2 : 1) : Math.ceil(nL / (mult > 2 ? 2 : 1));
+          const spanX = Math.max(db.w * 0.85, (nx - 1) * 0.65);
+          const spanY = Math.max(db.h * 0.85, (ny - 1) * 0.65);
+          for (let j = 0; j < ny; j++) {
+            for (let i = 0; i < nx; i++) {
+              const px = nx === 1 ? cx : cx - spanX / 2 + (spanX * i) / (nx - 1);
+              const py = ny === 1 ? cy : cy - spanY / 2 + (spanY * j) / (ny - 1);
+              if (pointInPoly(px, py, poly)) out.push(makeFixture(project, type, px, py, { rot, z: opts.z }));
+            }
+          }
+        }
+      }
+      return out;
+    };
+
+    const tmp = Object.assign({}, project);
+    const spacing = Math.max(0.25, Math.sqrt((b.w * b.h) / 2500));
+    let best = null;
+    for (let m = basePerDesk; m <= basePerDesk + 4; m++) {
+      const fx = buildForCount(m);
+      if (!fx.length) continue;
+      best = fx;
+      tmp.fixtures = fx;
+      const r = compute(tmp, { spacing, skipUGR: true });
+      if (r.Eavg >= target && r.coverage >= 80) break;
+    }
+    return best && best.length ? best : autoLayout(project, type, opts);
+  }
+
+  /** 計算燈具間距（鄰燈 X/Y 向間距、距牆距離、以及全圖相鄰燈距線段） */
+  function fixtureSpacings(project, targetFixture) {
+    const fxs = (project.fixtures || []).filter((f) => f.on !== false);
+    const b = polyBounds(project.room.polygon);
+    const rowTol = 0.65, colTol = 0.65;
+    const pairs = [];
+    const seen = new Set();
+
+    for (const a of fxs) {
+      let bestRight = null, bestDown = null;
+      for (const c of fxs) {
+        if (c.id === a.id) continue;
+        const dx = c.x - a.x, dy = c.y - a.y;
+        if (dx > 0.05 && Math.abs(dy) <= rowTol) {
+          if (!bestRight || dx < bestRight.dist) bestRight = { a, b: c, dist: Math.hypot(dx, dy), dx, dy, axis: 'x' };
+        }
+        if (dy > 0.05 && Math.abs(dx) <= colTol) {
+          if (!bestDown || dy < bestDown.dist) bestDown = { a, b: c, dist: Math.hypot(dx, dy), dx, dy, axis: 'y' };
+        }
+      }
+      for (const p of [bestRight, bestDown]) {
+        if (!p) continue;
+        const key = [p.a.id, p.b.id].sort().join('|') + '|' + p.axis;
+        if (!seen.has(key)) { seen.add(key); pairs.push(p); }
+      }
+    }
+
+    let detail = null;
+    if (targetFixture) {
+      const f = targetFixture;
+      let left = null, right = null, up = null, down = null, nearest = null;
+      for (const c of fxs) {
+        if (c.id === f.id) continue;
+        const dx = c.x - f.x, dy = c.y - f.y, d = Math.hypot(dx, dy);
+        if (!nearest || d < nearest.dist) nearest = { f: c, dist: d, dx, dy };
+        if (dx < -0.05 && Math.abs(dy) <= rowTol && (!left || -dx < left.dist)) left = { f: c, dist: Math.hypot(dx, dy), dx: -dx };
+        if (dx > 0.05 && Math.abs(dy) <= rowTol && (!right || dx < right.dist)) right = { f: c, dist: Math.hypot(dx, dy), dx };
+        if (dy < -0.05 && Math.abs(dx) <= colTol && (!up || -dy < up.dist)) up = { f: c, dist: Math.hypot(dx, dy), dy: -dy };
+        if (dy > 0.05 && Math.abs(dx) <= colTol && (!down || dy < down.dist)) down = { f: c, dist: Math.hypot(dx, dy), dy };
+      }
+      detail = {
+        left, right, up, down, nearest,
+        walls: {
+          west: +(f.x - b.minX).toFixed(2),
+          east: +(b.maxX - f.x).toFixed(2),
+          north: +(f.y - b.minY).toFixed(2),
+          south: +(b.maxY - f.y).toFixed(2),
+          poly: +distToPoly(f.x, f.y, project.room.polygon).toFixed(2),
+        },
+      };
+    }
+    return { pairs, detail };
+  }
+
   LX.calc = {
-    compute, autoLayout, makeFixture, defaultMountHeight, directAt, buildSources,
+    compute, autoLayout, layoutOverDesks, fixtureSpacings, makeFixture, defaultMountHeight, directAt, buildSources,
     tableFor, baseTable, clearCache,
     polyArea, polyPerimeter, polyBounds, pointInPoly, distToPoly,
   };

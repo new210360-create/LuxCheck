@@ -1,0 +1,5 @@
+(setvar "FILEDIA" 0)
+(setvar "CMDECHO" 0)
+(command "_.SAVEAS" "_2018" "D:/codex/APP開發/LuxCheck/deployment/cad-test-mm.dwg")
+(command "_.QUIT" "_N")
+

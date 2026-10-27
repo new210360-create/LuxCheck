@@ -1,0 +1,66 @@
+Redirect stdout (file: C:\Users\AR\AppData\Local\Temp\accc162882).
+AcCoreConsole: StdOutConsoleMode: processed-output: disabled,auto
+AutoCAD Core Engine Console - Copyright 2024 Autodesk, Inc.  All rights reserved. (V.58.0.0)
+
+Execution Path:
+C:\Program Files\Autodesk\AutoCAD 2025\accoreconsole.exe
+Current Directory: C:\Users\AR\AppData\Local\Temp\luxcheck-native-qa-IzKL5T
+
+Version Number: V.58.0.0 (UNICODE)
+LogFilePath has been set to the working folder.
+CoreHeartBeat
+正在重生模型。
+CoreHeartBeat
+
+**** 系統變數已變更 ****
+3 個受監視的系統變數已變更偏好值。使用 SYSVARMONITOR 指令以檢視變更。
+
+
+AutoCAD 功能表公用程式 已載入。
+指令:
+指令:
+
+指令:
+指令: (setvar "FILEDIA" 0)
+0
+
+指令: (setvar "CMDECHO" 0)
+0
+
+指令: (setvar "INSUNITS" 4)
+4
+
+指令: (defun lc-rect (lay pts) (entmake (append (list '(0 . "LWPOLYLINE") '(100 . "AcDbEntity") (cons 8 lay) '(100 . "AcDbPolyline") (cons 90 (length pts)) '(70 . 1)) (mapcar '(lambda (p) (cons 10 p)) pts))))
+LC-RECT
+
+指令: (lc-rect "ROOM-BOUNDARY" '((10000 20000) (22000 20000) (22000 28000) (10000 28000)))
+((0 . "LWPOLYLINE") (100 . "AcDbEntity") (8 . "ROOM-BOUNDARY") (100 . "AcDbPolyline") (90 . 4) (70 . 1) (10 10000 20000) (10 22000 20000) (10 22000 28000) (10 10000 28000))
+
+指令: (lc-rect "DESK" '((12000 22000) (13400 22000) (13400 22700) (12000 22700)))
+((0 . "LWPOLYLINE") (100 . "AcDbEntity") (8 . "DESK") (100 . "AcDbPolyline") (90 . 4) (70 . 1) (10 12000 22000) (10 13400 22000) (10 13400 22700) (10 12000 22700))
+
+指令: (entmake '((0 . "BLOCK") (2 . "DESK-1400") (70 . 0) (10 0 0 0)))
+((0 . "BLOCK") (2 . "DESK-1400") (70 . 0) (10 0 0 0))
+
+指令: (lc-rect "0" '((0 0) (1400 0) (1400 700) (0 700)))
+((0 . "LWPOLYLINE") (100 . "AcDbEntity") (8 . "0") (100 . "AcDbPolyline") (90 . 4) (70 . 1) (10 0 0) (10 1400 0) (10 1400 700) (10 0 700))
+
+指令: (entmake '((0 . "ENDBLK")))
+"DESK-1400"
+
+指令: (entmake '((0 . "INSERT") (2 . "DESK-1400") (8 . "FURNITURE") (10 17000 23000 0) (41 . 1.0) (42 . 1.0) (43 . 1.0) (50 . 1.5707963267948966)))
+((0 . "INSERT") (2 . "DESK-1400") (8 . "FURNITURE") (10 17000 23000 0) (41 . 1.0) (42 . 1.0) (43 . 1.0) (50 . 1.5708))
+
+指令: (lc-rect "DESK" '((19000 25000) (20600 25000) (20600 25800) (19000 25800)))
+((0 . "LWPOLYLINE") (100 . "AcDbEntity") (8 . "DESK") (100 . "AcDbPolyline") (90 . 4) (70 . 1) (10 19000 25000) (10 20600 25000) (10 20600 25800) (10 19000 25800))
+
+指令: (lc-rect "CHAIR" '((12000 21000) (12600 21000) (12600 21600) (12000 21600)))
+((0 . "LWPOLYLINE") (100 . "AcDbEntity") (8 . "CHAIR") (100 . "AcDbPolyline") (90 . 4) (70 . 1) (10 12000 21000) (10 12600 21000) (10 12600 21600) (10 12000 21600))
+
+指令: (command "_.SAVEAS" "_2018" "C:/Users/AR/AppData/Local/Temp/luxcheck-native-qa-IzKL5T/cad-test.dwg")
+nil
+
+指令: (command "_.QUIT" "_N")
+; 錯誤: 函數被取消
+LogFilePath has been restored to ''.
+

@@ -43,15 +43,16 @@
 <div class="bar"><button onclick="window.print()">列印 / 另存 PDF</button></div>
 <h1>室內照明照度檢核報告</h1>
 <div class="meta">專案：<b>${esc(p.name)}</b>　｜　空間類型：${esc(std.name)}　｜　產出日期：${now.toLocaleString('zh-TW')}　｜　LuxCheck</div>
-<div class="summary ${res.count && ev.Em.ok && ev.U0.ok && ev.UGR.ok && ev.Ra.ok && ev.LPD.ok ? 'ok' : 'bad'}">
-  綜合判定：<b>${res.count && ev.Em.ok && ev.U0.ok && ev.UGR.ok && ev.Ra.ok && ev.LPD.ok ? '全部檢核項目合格' : '有檢核項目未通過'}</b>
+<div class="summary ${res.count && ev.Em.ok && ev.U0.ok && ev.UGR.ok && ev.Ra.ok && ev.LPD.ok && ev.Floor.ok && ev.Desks.ok ? 'ok' : 'bad'}">
+  綜合判定：<b>${res.count && ev.Em.ok && ev.U0.ok && ev.UGR.ok && ev.Ra.ok && ev.LPD.ok && ev.Floor.ok && ev.Desks.ok ? '全部檢核項目合格' : '有檢核項目未通過'}</b>
 </div>
 
 <h2>1. 檢核結果</h2>
 <table>
 <tr><th>項目</th><th>計算值</th><th>標準要求</th><th>判定</th></tr>
-<tr><td>維持平均照度 Ē<sub>m</sub></td><td class="n">${fmt(res.Eavg)} lx</td><td>≥ ${p.target.Em} lx</td><td>${pass(ev.Em)}</td></tr>
-<tr><td>照度均齊度 U<sub>0</sub> = E<sub>min</sub>/Ē</td><td class="n">${fmt(res.U0, 2)}</td><td>≥ ${p.target.U0}</td><td>${pass(ev.U0)}</td></tr>
+<tr><td>${res.zoneMode?(res.deskStats.length?'桌面':'地面'):''}維持平均照度 Ē<sub>m</sub></td><td class="n">${fmt(res.Eavg)} lx</td><td>≥ ${res.primaryTarget} lx</td><td>${pass(ev.Em)}</td></tr>
+<tr><td>達標覆蓋率（照度達標面積比）</td><td class="n">${fmt(res.coverage ?? 100, 0)}%</td><td>≥ 80%（光束覆蓋 ${fmt(res.beamCoverage ?? 100, 0)}%）</td><td>${pass(ev.Cov || { ok: (res.coverage ?? 100) >= 80 })}</td></tr>
+<tr><td>照度均齊度 U<sub>0</sub> = E<sub>min</sub>/Ē</td><td class="n">${fmt(res.U0, 2)}</td><td>≥ ${res.primaryU0}</td><td>${pass(ev.U0)}</td></tr>
 <tr><td>統一眩光值 UGR（估算）</td><td class="n">${ugr == null ? '—' : fmt(ugr, 1)}</td><td>≤ ${p.target.UGR}</td><td>${pass(ev.UGR)}</td></tr>
 <tr><td>演色性 Ra（最低者）</td><td class="n">${ev.Ra.v == null ? '—' : ev.Ra.v}</td><td>≥ ${p.target.Ra}</td><td>${pass(ev.Ra)}</td></tr>
 <tr><td>照明功率密度 LPD</td><td class="n">${fmt(res.lpd, 2)} W/m²</td><td>≤ ${p.lpdLimit} W/m²</td><td>${pass(ev.LPD)}</td></tr>
@@ -61,9 +62,12 @@
 </table>
 <ul>${advice.map((a) => `<li>${esc(a.t)}</li>`).join('')}</ul>
 
-<h2>2. 工作面照度分布（高度 ${p.room.wp} m）</h2>
+${res.zoneMode?`<h2>桌面／地面分區照度與覆蓋率</h2><p class="note">${p.cad?`圖檔：${esc(p.cad.filename)}；每 CAD 單位 ${p.cad.scale} m。`:''}桌面高度固定 0.75 m，其他區域為地面 0 m。桌面不套用牆邊排除帶，地面套用排除帶。桌面及地面分別檢核，不將兩種高度混為同一工作面。桌面不計家具遮擋；間接光與 UGR 仍為近似估算。</p>
+<table><tr><th>區域</th><th>高度</th><th>平均 lx</th><th>最小 lx</th><th>U₀</th><th>達標覆蓋率</th><th>目標 lx / U₀</th><th>判定</th></tr>
+${[['全部桌面',res.surfaceStats.desk,0.75,p.target.Em,p.target.U0],['地面',res.surfaceStats.floor,0,p.floorTarget||100,0.4],...res.deskStats.map(d=>[d.name,d,0.75,p.target.Em,p.target.U0])].filter(([name,s])=>s.n||name!=='全部桌面'&&name!=='地面').map(([name,s,z,target,u0])=>`<tr><td>${esc(name)}</td><td>${z} m</td><td>${s.n?fmt(s.Eavg):'無格點'}</td><td>${s.n?fmt(s.Emin):'—'}</td><td>${s.n?fmt(s.U0,2):'—'}</td><td>${s.n?fmt(s.coverage??100,0)+'%':'—'}</td><td>${target} / ${u0}</td><td>${pass({ok:s.n>0&&s.Eavg>=target&&s.U0>=u0&&(name==='地面'||(s.coverage??100)>=80)})}</td></tr>`).join('')}</table>`:''}
+<h2>2. ${res.zoneMode?'桌面 0.75 m／地面 0 m':'工作面照度分布（高度 '+p.room.wp+' m）'}</h2>
 <img src="${img}" alt="照度分布圖">
-<p class="note">色階：${app.view.colorMode === 'target' ? `以目標照度 ${p.target.Em} lx 為中心（0 ~ ${p.target.Em * 2} lx）` : '0 ~ 最大照度'}。虛線框為計算區（排除牆邊 ${p.room.margin} m）。計算格點間距約 ${fmt(res.spacing, 2)} m，共 ${res.grid.nx}×${res.grid.ny} 點。</p>
+<p class="note">色階：${app.view.colorMode === 'target' ? `以目標照度 ${res.primaryTarget} lx 為中心（0 ~ ${res.primaryTarget * 2} lx）` : '0 ~ 最大照度'}。虛線框為地面計算區（排除牆邊 ${p.room.margin} m）；CAD 桌面保留邊緣格點。計算格點間距約 ${fmt(res.spacing, 2)} m，共 ${res.grid.nx}×${res.grid.ny} 點。</p>
 
 <div class="grid">
 <div>
@@ -72,7 +76,7 @@
 <tr><th>樓地板面積</th><td class="n">${fmt(res.area, 2)} m²</td></tr>
 <tr><th>空間尺寸（外框）</th><td class="n">${fmt(res.bounds.w, 2)} × ${fmt(res.bounds.h, 2)} m</td></tr>
 <tr><th>天花高度</th><td class="n">${p.room.height} m</td></tr>
-<tr><th>工作面高度</th><td class="n">${p.room.wp} m</td></tr>
+<tr><th>工作面高度</th><td class="n">${p.cad?'桌面 0.75 m／地面 0 m':p.room.wp+' m'}</td></tr>
 <tr><th>反射率 天花/牆/地</th><td class="n">${Math.round(p.room.rhoC * 100)}% / ${Math.round(p.room.rhoW * 100)}% / ${Math.round(p.room.rhoF * 100)}%</td></tr>
 <tr><th>維護係數 MF</th><td class="n">${p.room.mf}</td></tr>
 </table>
@@ -89,7 +93,7 @@ ${res.ugr ? res.ugr.views.map((v) => `<tr><td>${v.name}</td><td class="n">${fmt(
 <h2>5. 燈具清單</h2>
 <table>
 <tr><th>#</th><th>小樣</th><th>型號</th><th>數量</th><th>流明 (lm)</th><th>瓦數 (W)</th><th>光效 (lm/W)</th><th>光束角</th><th>色溫</th><th>Ra</th><th>安裝/開孔</th><th>高度 (m)</th><th>小計 (W)</th></tr>
-${bom.map((g, i) => `<tr><td>${i + 1}</td><td style="text-align:center;background:#0f172a;padding:3px">${LX.fixtureThumbSvg ? LX.fixtureThumbSvg(g.t, 34) : ''}</td><td>${esc(g.t.name)}${g.t.series ? ` <small style="color:#0369a1">[${esc(g.t.series)}]</small>` : ''}${g.t.source ? ` <small>(${g.t.source})</small>` : ''}</td><td class="n">${g.n}</td><td class="n">${g.f.lumens}</td><td class="n">${g.f.watts}</td><td class="n">${fmt(g.f.lumens / g.f.watts)}</td><td class="n">${g.f.beam}°</td><td class="n">${g.t.cct || '—'}K</td><td class="n">${g.t.cri || '—'}</td><td>${LX.mountName(g.t.mount)}${g.t.cutout ? ` / ${esc(g.t.cutout)}` : ''}</td><td class="n">${g.f.z}</td><td class="n">${fmt(g.n * g.f.watts, 1)}</td></tr>`).join('')}
+${bom.map((g, i) => `<tr><td>${i + 1}</td><td style="text-align:center;background:#0f172a;padding:3px">${LX.fixtureThumbSvg ? LX.fixtureThumbSvg(g.t, 34) : ''}</td><td>${esc(g.t.name)}${g.t.series ? ` <small style="color:#0369a1">[${esc(g.t.series)}]</small>` : ''}${g.t.source ? ` <small>(${esc(g.t.source)})</small>` : ''}</td><td class="n">${g.n}</td><td class="n">${g.f.lumens}</td><td class="n">${g.f.watts}</td><td class="n">${fmt(g.f.lumens / g.f.watts)}</td><td class="n">${g.f.beam}°</td><td class="n">${g.t.cct || '—'}K</td><td class="n">${g.t.cri || '—'}</td><td>${LX.mountName(g.t.mount)}${g.t.cutout ? ` / ${esc(g.t.cutout)}` : ''}</td><td class="n">${g.f.z}</td><td class="n">${fmt(g.n * g.f.watts, 1)}</td></tr>`).join('')}
 <tr><th colspan="3">合計</th><th class="n">${res.count}</th><th colspan="8"></th><th class="n">${fmt(res.totalW, 1)}</th></tr>
 </table>
 

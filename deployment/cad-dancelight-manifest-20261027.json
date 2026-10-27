@@ -1,0 +1,100 @@
+{
+  "project": "LuxCheck",
+  "version": "local-cad-dancelight-desks-20261027",
+  "generatedAt": "2026-10-27T02:53:37.850Z",
+  "backupDir": "D:\\codex\\APP??\\system-backups\\LuxCheck-cad-backup-20261027-103643",
+  "entryUrl": "http://127.0.0.1:4190/",
+  "verification": {
+    "geometrySuitePassed": true,
+    "uiSuitePassed": true,
+    "boundarySuitePassed": true,
+    "manualDesksAndCoveragePassed": true,
+    "deskTargetCoveragePct": 100,
+    "osnapAndOrthoPassed": true,
+    "offsetCopyPassed": true,
+    "liveSpacingReadoutPassed": true,
+    "pageErrors": []
+  },
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "9ACF7373EE9A4C82EE0DD2F12851B7D90BD5A4E9612FFDB840CFA50DD142D69E",
+      "bytes": 25248
+    },
+    {
+      "path": "server.cjs",
+      "sha256": "D9528C90303DEA523E4126163D0886A0FF802E6657FA4A97851F00EC43C78D19",
+      "bytes": 1644
+    },
+    {
+      "path": "cad-convert.cjs",
+      "sha256": "48847CFAF858E7A347309B86DD9B834ABA55D4A4552DCA04638187CCD71A9DBA",
+      "bytes": 2680
+    },
+    {
+      "path": "css/style.css",
+      "sha256": "D9C97970A684038200DD778764247F37524C6C0E13E5B4E7A98465D3A92B65A7",
+      "bytes": 10199
+    },
+    {
+      "path": "js/cad-ui.js",
+      "sha256": "18E0F3BFB85E84DBE331AE6B59F7F591AA2DFD5FCBA5A8A02E7296A8FFE004FE",
+      "bytes": 15095
+    },
+    {
+      "path": "js/cad.js",
+      "sha256": "5114F418FF808FE74E498F5E1ED6C22D93A566AE8FFA45B7BD455B2955245F2D",
+      "bytes": 11272
+    },
+    {
+      "path": "js/calc.js",
+      "sha256": "9FE38C2B3D8124C9461D12051D9775192EC2DDCF6018A96BC6D95F34A48E6457",
+      "bytes": 25015
+    },
+    {
+      "path": "js/library.js",
+      "sha256": "C8DC2EEF56576989AB53DD6412400A657E3E93C4FC09AEDCC97407880AE71CB0",
+      "bytes": 21713
+    },
+    {
+      "path": "js/main.js",
+      "sha256": "9E14D4ED1EDB145911D2B38CC5B7B697F4D1900398F255BBF19D7C5350C2D712",
+      "bytes": 67905
+    },
+    {
+      "path": "js/photometry.js",
+      "sha256": "58FF274FAA97D0DC4C5ED1D59B470B63AC29B81B755E794226378D54DDF9E3F0",
+      "bytes": 16505
+    },
+    {
+      "path": "js/render2d.js",
+      "sha256": "53DCA94665423681455C169266AE440CF11D988F993B24355F926E2CB6339D09",
+      "bytes": 45318
+    },
+    {
+      "path": "js/report.js",
+      "sha256": "1C8B6B66E0F4EF748B65B8D9C7A51774CCE1E73F1EB9F610DB6C162D5260F647",
+      "bytes": 9669
+    },
+    {
+      "path": "js/standards.js",
+      "sha256": "5C7DB116E573A4768F061057FB26B2AEA3DEEF4C86C6534DCD1EC663CD65B56C",
+      "bytes": 1863
+    },
+    {
+      "path": "js/storage.js",
+      "sha256": "0226F3F38A33C5E2D02227E95BFE93A21FB0F6055731334DA2C1D22E42342E12",
+      "bytes": 1123
+    },
+    {
+      "path": "js/view3d.js",
+      "sha256": "133A3A0256F697886D02050994B4DF3A7F2D493B36127FF8D7858CB0A7EC1BD3",
+      "bytes": 9282
+    },
+    {
+      "path": "vendor/dxf-parser.js",
+      "sha256": "445DD62529369A4EF32520D8B6232031EA8AF01F1029B08B2D876FF6B7807B7B",
+      "bytes": 25384
+    }
+  ]
+}

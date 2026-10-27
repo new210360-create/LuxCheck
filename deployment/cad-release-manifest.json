@@ -1,0 +1,104 @@
+{
+  "release": "local-cad-20261026",
+  "url": "http://127.0.0.1:4190/",
+  "baselineCommit": "ebb6e693e39d964b704f15aad94f16a85cc8d49a",
+  "backup": "D:/codex/APP開發/system-backups/LuxCheck-before-cad-20261026-151437",
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "3af3a3672141f8183d65804d340e146a9450c6b274a7188a946fed84cdac6700"
+    },
+    {
+      "path": "server.cjs",
+      "sha256": "d9528c90303dea523e4126163d0886a0ff802e6657fa4a97851f00ec43c78d19"
+    },
+    {
+      "path": "cad-convert.cjs",
+      "sha256": "48847cfaf858e7a347309b86dd9b834aba55d4a4552dca04638187ccd71a9dba"
+    },
+    {
+      "path": "css/style.css",
+      "sha256": "6ec127c8c8bfed7c564086516955d628f5df79dc9e262c5e3edecd1c104d2af3"
+    },
+    {
+      "path": "js/cad-ui.js",
+      "sha256": "90288f3554c977fb3fb65f983811fe6972f298f4cd7353e465d4db93d4c454e9"
+    },
+    {
+      "path": "js/cad.js",
+      "sha256": "5106d0e2feb4b143b21b789baca84bd30faf3f3e32a51cccff410e54ed32bf8b"
+    },
+    {
+      "path": "js/calc.js",
+      "sha256": "57c0f8f4d8cc1a8bf3781df40187f7953f7cb0c87a5933479b5b9da3aec80129"
+    },
+    {
+      "path": "js/library.js",
+      "sha256": "bb226ce0283cc4452d63150e01581f0c5558a68908492a4043ddfc45f6d2ea51"
+    },
+    {
+      "path": "js/main.js",
+      "sha256": "227f177a556c2d83becfd2380de057cc7aca4c28be8c2ffd53847e0457b4ca70"
+    },
+    {
+      "path": "js/photometry.js",
+      "sha256": "58ff274faa97d0dc4c5ed1d59b470b63ac29b81b755e794226378d54ddf9e3f0"
+    },
+    {
+      "path": "js/render2d.js",
+      "sha256": "077f20f5267e8a16453459ac03525138b64325e6138ac4d388e27ae69f55b171"
+    },
+    {
+      "path": "js/report.js",
+      "sha256": "c87eaf2b4b9862d1c3658b0ffe2a57baaa240a5de7e0d55966f532897d039252"
+    },
+    {
+      "path": "js/standards.js",
+      "sha256": "5c7db116e573a4768f061057fb26b2aea3deef4c86c6534dcd1ec663cd65b56c"
+    },
+    {
+      "path": "js/storage.js",
+      "sha256": "0226f3f38a33c5e2d02227e95bfe93a21fb0f6055731334da2c1d22e42342e12"
+    },
+    {
+      "path": "js/view3d.js",
+      "sha256": "fc7870f858d6aae5bab95ae1c76019652a1667e5d5abf95dd2120b878227a631"
+    },
+    {
+      "path": "vendor/dxf-parser.js",
+      "sha256": "445dd62529369a4ef32520d8b6232031ea8af01f1029b08b2d876ff6b7807b7b"
+    }
+  ],
+  "verification": [
+    {
+      "passed": true,
+      "dimensions": "12 x 8 m",
+      "desks": 3,
+      "heights": [
+        0,
+        0.75
+      ],
+      "mixedFixtures": 12,
+      "trackTilt": true,
+      "recessedHeight": true,
+      "calibration": true,
+      "saveReload": true,
+      "jsonRoundTrip": true,
+      "undoCad": true,
+      "dwgNative": true,
+      "report": true,
+      "pageErrors": []
+    },
+    {
+      "passed": true,
+      "undefinedUnitsRequireChoice": true,
+      "manualRoomBoundary": true,
+      "manualMountHeight": true,
+      "rescalePreservesCadLampLocations": true,
+      "floorOnlyTarget": 100,
+      "cadPngExport": true,
+      "invalidDwgPreservesProject": true,
+      "pageErrors": []
+    }
+  ]
+}

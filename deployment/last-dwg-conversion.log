@@ -1,0 +1,35 @@
+Redirect stdout (file: C:\Users\AR\AppData\Local\Temp\accc384402).
+AcCoreConsole: StdOutConsoleMode: processed-output: disabled,auto
+AutoCAD Core Engine Console - Copyright 2024 Autodesk, Inc.  All rights reserved. (V.58.0.0)
+
+Execution Path:
+C:\Program Files\Autodesk\AutoCAD 2025\accoreconsole.exe
+Current Directory: C:\Users\AR\AppData\Local\Temp\luxcheck-cad-fpwyRI
+
+Version Number: V.58.0.0 (UNICODE)
+LogFilePath has been set to the working folder.
+CoreHeartBeat
+正在重生模型。
+
+**** 系統變數已變更 ****
+3 個受監視的系統變數已變更偏好值。使用 SYSVARMONITOR 指令以檢視變更。
+
+
+AutoCAD 功能表公用程式 已載入。
+指令:
+指令:
+
+指令:
+指令: (setvar "FILEDIA" 0)
+0
+
+指令: (setvar "CMDECHO" 0)
+0
+
+指令: (command "_.DXFOUT" "C:/Users/AR/AppData/Local/Temp/luxcheck-cad-fpwyRI/output.dxf" "16")
+nil
+
+指令: (command "_.QUIT" "_N")
+; 錯誤: 函數被取消
+LogFilePath has been restored to ''.
+

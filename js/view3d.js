@@ -70,11 +70,16 @@
       const b = LX.calc.polyBounds(room.polygon);
       const shape = new T.Shape();
       room.polygon.forEach(([x, y], i) => (i ? shape.lineTo(x, y) : shape.moveTo(x, y)));
+      const allDesks = LX.cad && LX.cad.allDesks ? LX.cad.allDesks(pr) : (pr.cad?.desks || []);
+      const zoneMode = LX.cad && LX.cad.hasZoneMode ? LX.cad.hasZoneMode(pr) : !!pr.cad;
+      if(zoneMode)for(const desk of allDesks) {
+        const hole=new T.Path();desk.polygon.forEach(([x,y],i)=>i?hole.lineTo(x,y):hole.moveTo(x,y));hole.closePath();shape.holes.push(hole);
+      }
 
       // 工作面 + 熱圖貼圖
       let floorMat;
       if (res) {
-        const heat = LX.render.buildHeatCanvas(res, this.app.view.colorMode, pr.target.Em);
+        const heat = LX.render.buildHeatCanvas(res, this.app.view.colorMode, res.primaryTarget);
         const tex = new T.CanvasTexture(heat);
         tex.minFilter = T.LinearFilter;
         tex.magFilter = T.LinearFilter;
@@ -93,13 +98,27 @@
       fGeo.setAttribute('uv', new T.BufferAttribute(uv, 2));
       const floor = new T.Mesh(fGeo, floorMat);
       floor.rotation.x = Math.PI / 2; // shape (x,y) → (x, 0, y)
-      floor.position.y = room.wp;
+      floor.position.y = zoneMode?0.006:room.wp;
       g.add(floor);
+
+      if(zoneMode)for(const desk of allDesks) {
+        const dh=desk.height??0.75;
+        const ds=new T.Shape();desk.polygon.forEach(([x,y],i)=>i?ds.lineTo(x,y):ds.moveTo(x,y));ds.closePath();
+        const geo=new T.ShapeGeometry(ds),positions=geo.attributes.position,duv=new Float32Array(positions.count*2);
+        for(let i=0;i<positions.count;i++){duv[i*2]=(positions.getX(i)-gx0)/gw;duv[i*2+1]=1-(positions.getY(i)-gy0)/gh;}
+        geo.setAttribute('uv',new T.BufferAttribute(duv,2));
+        const top=new T.Mesh(geo,floorMat.clone());top.rotation.x=Math.PI/2;top.position.y=dh;top.userData.kind='desk';g.add(top);
+        const rim=new T.LineLoop(new T.BufferGeometry().setFromPoints(desk.polygon.map(([x,y])=>new T.Vector3(x,dh+0.005,y))),new T.LineBasicMaterial({color:0x38bdf8}));g.add(rim);
+        const center=desk.polygon.reduce((s,p)=>[s[0]+p[0]/desk.polygon.length,s[1]+p[1]/desk.polygon.length],[0,0]);
+        for(const [x,y] of desk.polygon.slice(0,4)){
+          const leg=new T.Mesh(new T.CylinderGeometry(0.022,0.022,dh-0.03,6),new T.MeshLambertMaterial({color:0x64748b}));leg.position.set(x*0.9+center[0]*0.1,(dh-0.03)/2,y*0.9+center[1]*0.1);g.add(leg);
+        }
+      }
 
       // 地板
       const fl = new T.Mesh(new T.ShapeGeometry(shape), new T.MeshLambertMaterial({ color: 0x1f2937, side: T.DoubleSide }));
       fl.rotation.x = Math.PI / 2;
-      fl.position.y = 0;
+      fl.position.y = -0.01;
       g.add(fl);
 
       // 牆
@@ -142,7 +161,7 @@
           g.add(new T.Line(wg, wireMat));
         }
         if (showBeams && f.on !== false) {
-          const hgt = f.z - room.wp;
+          const hgt = f.z - LX.cad.surfaceAt(pr,f.x,f.y).height;
           if (hgt > 0) {
             const r = hgt * Math.tan(Math.min(80, f.beam / 2) * Math.PI / 180);
             const cone = new T.Mesh(

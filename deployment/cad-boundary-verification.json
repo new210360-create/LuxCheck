@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "undefinedUnitsRequireChoice": true,
+  "manualRoomBoundary": true,
+  "manualMountHeight": true,
+  "rescalePreservesCadLampLocations": true,
+  "floorOnlyTarget": 100,
+  "cadPngExport": true,
+  "invalidDwgPreservesProject": true,
+  "pageErrors": []
+}

@@ -1,0 +1,17 @@
+const fs=require('node:fs');const path=require('node:path');
+const pair=(c,v)=>`${c}\n${v}\n`;
+const poly=(layer,points)=>pair(0,'LWPOLYLINE')+pair(8,layer)+pair(90,points.length)+pair(70,1)+points.map(([x,y])=>pair(10,x)+pair(20,y)).join('');
+const line=(layer,a,b)=>pair(0,'LINE')+pair(8,layer)+pair(10,a[0])+pair(20,a[1])+pair(30,0)+pair(11,b[0])+pair(21,b[1])+pair(31,0);
+const rect=(x,y,w,h)=>[[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
+let text=pair(0,'SECTION')+pair(2,'HEADER')+pair(9,'$ACADVER')+pair(1,'AC1027')+pair(9,'$INSUNITS')+pair(70,4)+pair(0,'ENDSEC');
+text+=pair(0,'SECTION')+pair(2,'BLOCKS')+pair(0,'BLOCK')+pair(8,'0')+pair(2,'DESK-1400')+pair(70,0)+pair(10,0)+pair(20,0)+pair(30,0)+pair(3,'DESK-1400')+poly('0',rect(0,0,1400,700))+pair(0,'ENDBLK')+pair(0,'ENDSEC');
+text+=pair(0,'SECTION')+pair(2,'ENTITIES');
+text+=poly('ROOM-BOUNDARY',rect(10000,20000,12000,8000));
+text+=poly('DESK',rect(12000,22000,1400,700));
+text+=pair(0,'INSERT')+pair(8,'FURNITURE')+pair(2,'DESK-1400')+pair(10,17000)+pair(20,23000)+pair(30,0)+pair(41,1)+pair(42,1)+pair(43,1)+pair(50,90);
+const r=rect(19000,25000,1600,800);for(let i=0;i<4;i++)text+=line('DESK',r[i],r[(i+1)%4]);
+text+=poly('CHAIR',rect(12000,21000,600,600));
+text+=pair(0,'CIRCLE')+pair(8,'CHAIR')+pair(10,18000)+pair(20,22000)+pair(30,0)+pair(40,300);
+text+=poly('SHEET',rect(0,0,40000,40000))+pair(0,'ENDSEC')+pair(0,'EOF');
+fs.writeFileSync(path.join(__dirname,'cad-test-mm.dxf'),text);
+module.exports={text};

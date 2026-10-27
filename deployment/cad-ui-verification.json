@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "dimensions": "12 x 8 m",
+  "desks": 3,
+  "heights": [
+    0,
+    0.75
+  ],
+  "mixedFixtures": 12,
+  "trackTilt": true,
+  "recessedHeight": true,
+  "calibration": true,
+  "saveReload": true,
+  "jsonRoundTrip": true,
+  "undoCad": true,
+  "dwgNative": true,
+  "report": true,
+  "pageErrors": []
+}

@@ -1,0 +1,54 @@
+{
+  "repository": "https://github.com/new210360-create/LuxCheck",
+  "commit": "ebb6e693e39d964b704f15aad94f16a85cc8d49a",
+  "files": [
+    {
+      "path": "css/style.css",
+      "gitBlobSha": "e0062857b92e4422fd2fd8687344a51a9924a87e"
+    },
+    {
+      "path": "index.html",
+      "gitBlobSha": "64d35767f4539821d58ac23879203410be6ec9f1"
+    },
+    {
+      "path": "js/calc.js",
+      "gitBlobSha": "d862c7eae25a6dfa96af483d1a24a7970b4e4ee8"
+    },
+    {
+      "path": "js/library.js",
+      "gitBlobSha": "dce993498a7b7b492de58c48f61d4f6b916d068e"
+    },
+    {
+      "path": "js/main.js",
+      "gitBlobSha": "d8d6b6f524bc84c88f56593641b07073f48c197d"
+    },
+    {
+      "path": "js/photometry.js",
+      "gitBlobSha": "f5378e45381ee9b60ebbff35619b83a8d2565dca"
+    },
+    {
+      "path": "js/render2d.js",
+      "gitBlobSha": "86dbf9a7659c1ba6ecf3f35fb6626edda3184de6"
+    },
+    {
+      "path": "js/report.js",
+      "gitBlobSha": "82b9c5bac8044f6694314b7510bee8db84d8d5b5"
+    },
+    {
+      "path": "js/standards.js",
+      "gitBlobSha": "d981d7930491b781ea42742593a1e745d830129d"
+    },
+    {
+      "path": "js/view3d.js",
+      "gitBlobSha": "814775e4143c2b7a945a8b492b01b9c738e472d1"
+    },
+    {
+      "path": "samples/sample_downlight_15w_60d.ies",
+      "gitBlobSha": "2a1c3a3212f2e096d1c9f0e8fbae37d78f17a6c7"
+    },
+    {
+      "path": "samples/sample_panel_6060_36w.ies",
+      "gitBlobSha": "b9e56ea23572cfc2c2554662f5ea35c7969bafc0"
+    }
+  ]
+}

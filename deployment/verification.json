@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "kpis": "平均照度 Em\n625lx\n目標 ≥ 500 lx\n均齊度 U₀\n0.63\n目標 ≥ 0.6　(Emin 395 lx)\n統一眩光 UGR\n16.2\n上限 ≤ 19（估算）\n演色性 Ra\n85\n目標 ≥ 80\n功率密度 LPD\n6.22W/m²\n上限 ≤ 8.5　(1.00 W/m²/100lx)\n最大照度\n695lx\nEmin/Emax 0.57\n燈具 / 總功率\n112 盞 · 3360W\n總光通量 380.8 klm · 面積 540.0 m²\n直接 / 間接\n507 / 100lx\nMF 0.8 · 反射 70/50/20",
+  "webgl": {
+    "width": 970,
+    "height": 847,
+    "available": true
+  },
+  "exports": [
+    {
+      "extension": ".json",
+      "bytes": 19731
+    },
+    {
+      "extension": ".csv",
+      "bytes": 322
+    },
+    {
+      "extension": ".png",
+      "bytes": 2034303
+    }
+  ],
+  "report": true,
+  "pageErrors": [],
+  "externalRequests": []
+}

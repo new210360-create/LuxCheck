@@ -20,7 +20,7 @@
       const top = target * 2;
       return { t: (v) => v / top, max: top, ticks: [0, target * 0.5, target, target * 1.5, top] };
     }
-    const max = Math.max(1, result ? result.Emax : 1);
+    const max = Math.max(1, result ? (result.gridMax??result.Emax) : 1);
     const step = niceStep(max / 5);
     const ticks = [];
     for (let v = 0; v <= max + 1e-6; v += step) ticks.push(v);
@@ -118,7 +118,7 @@
     setResult(result) {
       this.result = result;
       const opt = this.app.view;
-      this.heat = result ? buildHeatCanvas(result, opt.colorMode, this.app.project.target.Em) : null;
+      this.heat = result ? buildHeatCanvas(result, opt.colorMode, result.primaryTarget) : null;
       this.draw();
     }
 
@@ -171,10 +171,49 @@
       }
 
       // 等照度線
-      if (v.isolux && res) this.drawIsolux(ctx, res, pr.target.Em, forPrint);
+      if (v.isolux && res) this.drawIsolux(ctx, res, res.primaryTarget, forPrint);
 
       // 數值
       if (v.values && res) this.drawValues(ctx, res, forPrint);
+
+      // Imported CAD background & all office desks (CAD + manually added)
+      const allDesks = LX.cad && LX.cad.allDesks ? LX.cad.allDesks(pr) : [...(pr.cad?.desks || []), ...(pr.desks || [])];
+      if ((pr.cad && v.cad !== false) || allDesks.length) {
+        ctx.save(); ctx.clip(path); ctx.lineWidth = forPrint ? 0.8 : 1;
+        if (pr.cad && v.cad !== false) {
+          ctx.strokeStyle = forPrint ? 'rgba(15,23,42,.55)' : 'rgba(235,245,255,.48)';
+          for (const line of pr.cad.background || []) {
+            ctx.beginPath(); line.points.forEach(([x, y], i) => { const s = this.toScreen(x, y); i ? ctx.lineTo(...s) : ctx.moveTo(...s); }); if (line.closed) ctx.closePath(); ctx.stroke();
+          }
+        }
+        const deskStatMap = new Map((res?.deskStats || []).map(d => [d.id, d]));
+        for (const desk of allDesks) {
+          if (!pr.cad && v.cad === false && !desk.manual) continue;
+          const isDeskSel = app.selectedDeskId === desk.id && !forPrint;
+          ctx.beginPath();
+          desk.polygon.forEach(([x, y], i) => { const s = this.toScreen(x, y); i ? ctx.lineTo(...s) : ctx.moveTo(...s); });
+          ctx.closePath();
+          ctx.fillStyle = isDeskSel ? 'rgba(250,204,21,0.18)' : (forPrint ? 'rgba(3,105,161,0.08)' : 'rgba(56,189,248,0.14)');
+          ctx.fill();
+          ctx.strokeStyle = isDeskSel ? '#facc15' : (forPrint ? '#0369a1' : '#38bdf8');
+          ctx.lineWidth = isDeskSel ? 2.6 : 2;
+          ctx.stroke();
+          const b = LX.calc.polyBounds(desk.polygon), [x, y] = this.toScreen(b.minX, b.minY);
+          if (b.w * this.scale > 42) {
+            const st = deskStatMap.get(desk.id);
+            ctx.fillStyle = isDeskSel ? '#fef08a' : (forPrint ? '#075985' : '#e0f2fe');
+            ctx.font = 'bold 10px system-ui';
+            ctx.fillText(`${desk.name} · ${Math.round((desk.height ?? 0.75) * 100)}cm`, x + 4, y + 12);
+            if (st && st.n && b.h * this.scale > 26) {
+              const ok = st.Eavg >= (pr.target?.Em || 500) && st.coverage >= 80;
+              ctx.fillStyle = forPrint ? (ok ? '#15803d' : '#b91c1c') : (ok ? '#4ade80' : '#fbbf24');
+              ctx.font = '10px system-ui';
+              ctx.fillText(`${Math.round(st.Eavg)} lx · 覆蓋 ${Math.round(st.coverage)}%`, x + 4, y + 24);
+            }
+          }
+        }
+        ctx.restore();
+      }
 
       // 牆邊排除帶
       if (room.margin > 0) {
@@ -207,7 +246,7 @@
         ctx.setLineDash([3, 3]);
         ctx.lineWidth = 1;
         for (const f of pr.fixtures) {
-          const hgt = f.z - room.wp;
+          const hgt = f.z - LX.cad.surfaceAt(pr,f.x,f.y).height;
           if (hgt <= 0) continue;
           const r = hgt * Math.tan(Math.min(85, f.beam / 2) * DEG);
           const off = hgt * Math.tan((f.tilt || 0) * DEG);
@@ -269,6 +308,24 @@
         }
       }
 
+      // 燈具間距尺寸標註
+      if (v.spacing !== false && pr.fixtures.length) {
+        this.drawFixtureSpacings(ctx, pr, forPrint);
+      }
+
+      // 手動尺寸標註線
+      this.drawCustomDims(ctx, pr, forPrint);
+
+      // 智慧鎖點導引線與標記
+      if (!forPrint && v.osnap !== false) {
+        this.drawOsnapGuides(ctx, W, H);
+      }
+
+      // 偏移複製預覽
+      if (this.drag && this.drag.kind === 'offset' && !forPrint) {
+        this.drawOffsetPreview(ctx, lib);
+      }
+
       // 框選
       if (this.drag && this.drag.kind === 'box') {
         const d = this.drag;
@@ -280,12 +337,12 @@
         ctx.setLineDash([]);
       }
 
-      // 新增工具預覽
+      // 新增燈具預覽
       if (app.tool === 'add' && this.hover && !forPrint) {
         const t = lib.get(app.activeType);
         if (t) {
           const [sx, sy] = this.toScreen(this.hover.sx, this.hover.sy);
-          ctx.globalAlpha = 0.6;
+          ctx.globalAlpha = 0.65;
           ctx.fillStyle = '#38bdf8';
           const L = Math.max(7, (t.length || 0.1) * this.scale), Wd = Math.max(5, (t.width || 0.1) * this.scale);
           ctx.save(); ctx.translate(sx, sy); ctx.rotate((app.addRot || 0) * DEG);
@@ -293,6 +350,28 @@
           ctx.restore();
           ctx.globalAlpha = 1;
         }
+      }
+
+      // 新增辦公桌預覽
+      if (app.tool === 'addDesk' && this.hover && !forPrint) {
+        const [sx, sy] = this.toScreen(this.hover.sx, this.hover.sy);
+        const dL = (app.deskSpec?.L || 1.4) * this.scale;
+        const dW = (app.deskSpec?.W || 0.7) * this.scale;
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate((app.addRot || 0) * DEG);
+        ctx.fillStyle = 'rgba(56,189,248,0.25)';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 3]);
+        ctx.fillRect(-dL / 2, -dW / 2, dL, dW);
+        ctx.strokeRect(-dL / 2, -dW / 2, dL, dW);
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#e0f2fe';
+        ctx.font = '10px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(`辦公桌 ${(app.deskSpec?.L || 1.4).toFixed(1)}×${(app.deskSpec?.W || 0.7).toFixed(1)}m`, 0, 4);
+        ctx.restore();
       }
 
       // 色階圖例
@@ -304,7 +383,7 @@
     }
 
     drawLegend(ctx, W, H, forPrint) {
-      const sf = scaleFn(this.app.view.colorMode, this.result, this.app.project.target.Em);
+      const sf = scaleFn(this.app.view.colorMode, this.result, this.result.primaryTarget);
       const w = 14, h = Math.min(220, H - 80);
       const x = W - 70, y = 20;
       for (let i = 0; i < h; i++) {
@@ -426,6 +505,222 @@
       ctx.restore();
     }
 
+    /** 繪製燈具間距與選取燈具距牆距離標註 */
+    drawFixtureSpacings(ctx, pr, forPrint) {
+      if (!LX.calc.fixtureSpacings) return;
+      const selIds = this.app.selection;
+      const selFx = pr.fixtures.find((f) => selIds.has(f.id));
+      const { pairs, detail } = LX.calc.fixtureSpacings(pr, selFx);
+      ctx.save();
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'center';
+
+      // 若燈具較多，非選取狀態下僅顯示第一列與第一行代表性間距＋所有與選取燈具相連的間距，避免畫面雜亂
+      let minY = Infinity, minX = Infinity;
+      for (const f of pr.fixtures) { if (f.y < minY) minY = f.y; if (f.x < minX) minX = f.x; }
+
+      for (const p of pairs) {
+        const isSelPair = selIds.has(p.a.id) || selIds.has(p.b.id);
+        const isEdgeRep = (p.axis === 'x' && Math.abs(p.a.y - minY) < 0.7) || (p.axis === 'y' && Math.abs(p.a.x - minX) < 0.7);
+        if (!isSelPair && pr.fixtures.length > 20 && !isEdgeRep) continue;
+        const [x1, y1] = this.toScreen(p.a.x, p.a.y);
+        const [x2, y2] = this.toScreen(p.b.x, p.b.y);
+        const pxDist = Math.hypot(x2 - x1, y2 - y1);
+        if (pxDist < 34) continue;
+
+        ctx.strokeStyle = isSelPair ? (forPrint ? '#0284c7' : '#38bdf8') : (forPrint ? 'rgba(15,23,42,0.5)' : 'rgba(226,232,240,0.45)');
+        ctx.lineWidth = isSelPair ? 1.6 : 1;
+        ctx.setLineDash(isSelPair ? [] : [3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        const txt = p.dist.toFixed(2) + 'm';
+        const tw = ctx.measureText(txt).width + 8;
+        ctx.fillStyle = isSelPair ? (forPrint ? '#e0f2fe' : 'rgba(12,74,110,0.92)') : (forPrint ? 'rgba(255,255,255,0.85)' : 'rgba(15,23,42,0.82)');
+        ctx.fillRect(mx - tw / 2, my - 7, tw, 14);
+        if (isSelPair) {
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(mx - tw / 2, my - 7, tw, 14);
+        }
+        ctx.fillStyle = isSelPair ? (forPrint ? '#0369a1' : '#7dd3fc') : (forPrint ? '#334155' : '#cbd5e1');
+        ctx.fillText(txt, mx, my + 3.5);
+      }
+
+      // 選取單一燈具時，畫出至西／北牆邊距參考線
+      if (selFx && detail && !forPrint) {
+        const b = LX.calc.polyBounds(pr.room.polygon);
+        const [sx, sy] = this.toScreen(selFx.x, selFx.y);
+        const [wx0] = this.toScreen(b.minX, selFx.y);
+        const [, ny0] = this.toScreen(selFx.x, b.minY);
+        ctx.strokeStyle = 'rgba(250,204,21,0.55)';
+        ctx.setLineDash([2, 3]);
+        ctx.lineWidth = 1.2;
+        if (sx - wx0 > 32) {
+          ctx.beginPath(); ctx.moveTo(wx0, sy); ctx.lineTo(sx, sy); ctx.stroke();
+          ctx.fillStyle = '#fde047';
+          ctx.fillText(`距牆 ${detail.walls.west.toFixed(2)}m`, (wx0 + sx) / 2, sy - 5);
+        }
+        if (sy - ny0 > 32) {
+          ctx.beginPath(); ctx.moveTo(sx, ny0); ctx.lineTo(sx, sy); ctx.stroke();
+          ctx.fillStyle = '#fde047';
+          ctx.fillText(`${detail.walls.north.toFixed(2)}m`, sx + 22, (ny0 + sy) / 2 + 3);
+        }
+        ctx.setLineDash([]);
+      }
+      ctx.restore();
+    }
+
+    /** 繪製使用者自訂尺寸標註線與量測預覽 */
+    drawCustomDims(ctx, pr, forPrint) {
+      const dims = [...(pr.dims || [])];
+      if (this.app.tool === 'dim' && this.dimStart && this.hover && !forPrint) {
+        const [ex, ey] = this.applyOrtho(this.dimStart[0], this.dimStart[1], this.hover.sx, this.hover.sy, this.lastEvent);
+        dims.push({ ax: this.dimStart[0], ay: this.dimStart[1], bx: ex, by: ey, preview: true });
+      }
+      if (!dims.length) return;
+      ctx.save();
+      ctx.font = 'bold 11px system-ui';
+      ctx.textAlign = 'center';
+      for (const d of dims) {
+        const [x1, y1] = this.toScreen(d.ax, d.ay);
+        const [x2, y2] = this.toScreen(d.bx, d.by);
+        const dist = Math.hypot(d.bx - d.ax, d.by - d.ay);
+        if (dist < 1e-4) continue;
+        const color = d.preview ? '#fb923c' : (forPrint ? '#b45309' : '#facc15');
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+
+        // 端點圓點與尺寸線刻度
+        const ang = Math.atan2(y2 - y1, x2 - x1);
+        const nx = -Math.sin(ang) * 6, ny = Math.cos(ang) * 6;
+        ctx.beginPath();
+        ctx.moveTo(x1 - nx, y1 - ny); ctx.lineTo(x1 + nx, y1 + ny);
+        ctx.moveTo(x2 - nx, y2 - ny); ctx.lineTo(x2 + nx, y2 + ny);
+        ctx.stroke();
+
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        const dx = Math.abs(d.bx - d.ax), dy = Math.abs(d.by - d.ay);
+        const label = dx > 0.02 && dy > 0.02
+          ? `${dist.toFixed(2)}m (ΔX ${dx.toFixed(2)}, ΔY ${dy.toFixed(2)})`
+          : `${dist.toFixed(2)} m`;
+        const tw = ctx.measureText(label).width + 10;
+        ctx.fillStyle = forPrint ? '#fef3c7' : 'rgba(15,23,42,0.92)';
+        ctx.fillRect(mx - tw / 2, my - 9, tw, 17);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(mx - tw / 2, my - 9, tw, 17);
+        ctx.fillStyle = color;
+        ctx.fillText(label, mx, my + 3.5);
+      }
+      ctx.restore();
+    }
+
+    /** 繪製智慧鎖點導引線與正交提示 */
+    drawOsnapGuides(ctx, W, H) {
+      const snaps = this.activeSnaps || [];
+      if (!snaps.length && !(this.drag && this.drag.orthoLocked)) return;
+      ctx.save();
+      for (const s of snaps) {
+        if (s.guideX != null) {
+          const [sx] = this.toScreen(s.guideX, 0);
+          ctx.strokeStyle = 'rgba(56,189,248,0.75)';
+          ctx.setLineDash([4, 4]);
+          ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
+        }
+        if (s.guideY != null) {
+          const [, sy] = this.toScreen(0, s.guideY);
+          ctx.strokeStyle = 'rgba(56,189,248,0.75)';
+          ctx.setLineDash([4, 4]);
+          ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(W, sy); ctx.stroke();
+        }
+        if (s.x != null && s.y != null) {
+          const [px, py] = this.toScreen(s.x, s.y);
+          ctx.setLineDash([]);
+          ctx.strokeStyle = '#4ade80';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(px - 5, py - 5, 10, 10);
+          ctx.beginPath();
+          ctx.moveTo(px - 8, py); ctx.lineTo(px + 8, py);
+          ctx.moveTo(px, py - 8); ctx.lineTo(px, py + 8);
+          ctx.stroke();
+          if (s.label) {
+            ctx.font = '10px system-ui';
+            const tw = ctx.measureText(s.label).width + 8;
+            ctx.fillStyle = 'rgba(20,83,45,0.92)';
+            ctx.fillRect(px + 8, py - 18, tw, 15);
+            ctx.fillStyle = '#bbf7d0';
+            ctx.fillText(s.label, px + 12, py - 7);
+          }
+        }
+      }
+      ctx.restore();
+    }
+
+    /** 繪製偏移複製即時預覽 */
+    drawOffsetPreview(ctx, lib) {
+      const d = this.drag;
+      if (!d || (Math.abs(d.ddx || 0) + Math.abs(d.ddy || 0) < 1e-4)) return;
+      ctx.save();
+      ctx.strokeStyle = '#facc15';
+      ctx.fillStyle = 'rgba(250,204,21,0.28)';
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1.8;
+      if (d.desk) {
+        ctx.beginPath();
+        d.desk.polygon.forEach(([x, y], i) => {
+          const [sx, sy] = this.toScreen(x + d.ddx, y + d.ddy);
+          i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy);
+        });
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+      } else if (d.items) {
+        for (const it of d.items) {
+          const t = lib.get(it.f.typeId);
+          if (!t) continue;
+          const [sx, sy] = this.toScreen(it.x + d.ddx, it.y + d.ddy);
+          const L = Math.max(7, (t.length || 0.1) * this.scale);
+          const Wd = Math.max(t.shape === 'round' ? 7 : 4, (t.width || 0.1) * this.scale);
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.rotate((it.f.rot || 0) * DEG);
+          if (t.shape === 'round') {
+            ctx.beginPath(); ctx.arc(0, 0, Math.max(L, Wd) / 2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          } else {
+            ctx.fillRect(-L / 2, -Wd / 2, L, Wd); ctx.strokeRect(-L / 2, -Wd / 2, L, Wd);
+          }
+          ctx.restore();
+        }
+      }
+      const [ax, ay] = this.toScreen(d.wx, d.wy);
+      const [bx, by] = this.toScreen(d.wx + d.ddx, d.wy + d.ddy);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.setLineDash([]);
+      const dist = Math.hypot(d.ddx, d.ddy);
+      const label = `偏移複製 ${dist.toFixed(2)}m (ΔX ${d.ddx.toFixed(2)}, ΔY ${d.ddy.toFixed(2)})`;
+      ctx.font = 'bold 11px system-ui';
+      const tw = ctx.measureText(label).width + 10;
+      const mx = (ax + bx) / 2, my = (ay + by) / 2 - 12;
+      ctx.fillStyle = 'rgba(15,23,42,0.92)';
+      ctx.fillRect(mx - tw / 2, my - 9, tw, 17);
+      ctx.strokeRect(mx - tw / 2, my - 9, tw, 17);
+      ctx.fillStyle = '#fde047';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, mx, my + 3);
+      ctx.restore();
+    }
+
     /** 高解析度出圖（報告用） */
     renderImage(w, h) {
       const c = document.createElement('canvas');
@@ -461,10 +756,93 @@
       return null;
     }
 
+    hitTestDesk(wx, wy) {
+      const pr = this.app.project;
+      const allDesks = LX.cad && LX.cad.allDesks ? LX.cad.allDesks(pr) : [...(pr.cad?.desks || []), ...(pr.desks || [])];
+      for (let i = allDesks.length - 1; i >= 0; i--) {
+        if (LX.calc.pointInPoly(wx, wy, allDesks[i].polygon)) return allDesks[i];
+      }
+      return null;
+    }
+
     snap(v, e) {
       if (e && e.altKey) return v;
       const s = this.app.view.snap || 0;
       return s > 0 ? Math.round(v / s) * s : v;
+    }
+
+    isOrtho(e) {
+      return Boolean(this.app.view.ortho || (e && e.shiftKey));
+    }
+
+    applyOrtho(x0, y0, x1, y1, e) {
+      if (!this.isOrtho(e)) return [x1, y1, false];
+      const dx = x1 - x0, dy = y1 - y0;
+      if (Math.abs(dx) >= Math.abs(dy)) return [x1, y0, true];
+      return [x0, y1, true];
+    }
+
+    /** 智慧鎖點：鎖定辦公桌中心/角點、空間中心、牆角、以及鄰燈 X/Y 對齊線 */
+    computeSmartSnap(wx, wy, e, excludeIds) {
+      if (e && e.altKey) { this.activeSnaps = []; return [wx, wy]; }
+      const v = this.app.view;
+      if (v.osnap === false) {
+        this.activeSnaps = [];
+        return [this.snap(wx, e), this.snap(wy, e)];
+      }
+      const pr = this.app.project;
+      const tol = Math.min(0.45, Math.max(0.08, 11 / this.scale));
+      const excl = excludeIds || new Set();
+      const snaps = [];
+
+      // 1. 點鎖點候選（桌面中心、桌面角點、空間中心、牆角、燈具中心）
+      const ptCands = [];
+      const b = LX.calc.polyBounds(pr.room.polygon);
+      ptCands.push({ x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2, label: '鎖點：空間中心' });
+      for (const [px, py] of pr.room.polygon) ptCands.push({ x: px, y: py, label: '鎖點：牆角' });
+
+      const allDesks = LX.cad && LX.cad.allDesks ? LX.cad.allDesks(pr) : [...(pr.cad?.desks || []), ...(pr.desks || [])];
+      for (const d of allDesks) {
+        if (excl.has(d.id)) continue;
+        const db = LX.calc.polyBounds(d.polygon);
+        ptCands.push({ x: (db.minX + db.maxX) / 2, y: (db.minY + db.maxY) / 2, label: `鎖點：${d.name}中心` });
+        for (const [px, py] of d.polygon) ptCands.push({ x: px, y: py, label: `鎖點：${d.name}角點` });
+      }
+      if (this.app.tool === 'dim') {
+        for (const f of pr.fixtures) ptCands.push({ x: f.x, y: f.y, label: `鎖點：燈具 ${f.id}` });
+      }
+
+      let bestPt = null, bestDist = tol;
+      for (const c of ptCands) {
+        const d = Math.hypot(wx - c.x, wy - c.y);
+        if (d < bestDist) { bestDist = d; bestPt = c; }
+      }
+      if (bestPt) {
+        this.activeSnaps = [{ x: bestPt.x, y: bestPt.y, guideX: bestPt.x, guideY: bestPt.y, label: bestPt.label }];
+        return [+bestPt.x.toFixed(3), +bestPt.y.toFixed(3)];
+      }
+
+      // 2. 軸向對齊鎖點（對齊其他燈具 X 或 Y 座標、桌面中心軸線）
+      let sx = this.snap(wx, e), sy = this.snap(wy, e);
+      let bestX = tol * 0.85, bestY = tol * 0.85;
+      let snapX = null, snapY = null;
+      for (const f of pr.fixtures) {
+        if (excl.has(f.id)) continue;
+        const dx = Math.abs(wx - f.x), dy = Math.abs(wy - f.y);
+        if (dx < bestX) { bestX = dx; snapX = { val: f.x, refY: f.y, label: '對齊鄰燈 X' }; }
+        if (dy < bestY) { bestY = dy; snapY = { val: f.y, refX: f.x, label: '對齊鄰燈 Y' }; }
+      }
+      for (const d of allDesks) {
+        if (excl.has(d.id)) continue;
+        const db = LX.calc.polyBounds(d.polygon);
+        const cx = (db.minX + db.maxX) / 2, cy = (db.minY + db.maxY) / 2;
+        if (Math.abs(wx - cx) < bestX) { bestX = Math.abs(wx - cx); snapX = { val: cx, refY: cy, label: `對齊${d.name}中心 X` }; }
+        if (Math.abs(wy - cy) < bestY) { bestY = Math.abs(wy - cy); snapY = { val: cy, refX: cx, label: `對齊${d.name}中心 Y` }; }
+      }
+      if (snapX) { sx = +snapX.val.toFixed(3); snaps.push({ x: sx, y: sy, guideX: sx, label: snapX.label }); }
+      if (snapY) { sy = +snapY.val.toFixed(3); snaps.push({ x: sx, y: sy, guideY: sy, label: snapY.label }); }
+      this.activeSnaps = snaps;
+      return [sx, sy];
     }
 
     bind() {
@@ -484,6 +862,7 @@
       }, { passive: false });
 
       cv.addEventListener('mousedown', (e) => {
+        this.lastEvent = e;
         const [px, py] = pos(e);
         const app = this.app;
         if (e.button === 1 || e.button === 2 || app.tool === 'pan' || this.spaceDown) {
@@ -491,12 +870,36 @@
           return;
         }
         const [wx, wy] = this.toWorld(px, py);
+        const [sx, sy] = this.computeSmartSnap(wx, wy, e);
+
         if (app.tool === 'add') {
-          app.addFixtureAt(this.snap(wx, e), this.snap(wy, e));
+          app.addFixtureAt(sx, sy);
           return;
         }
+        if (app.tool === 'addDesk') {
+          if (app.addDeskAt) app.addDeskAt(sx, sy);
+          return;
+        }
+        if (app.tool === 'dim') {
+          if (!this.dimStart) {
+            this.dimStart = [sx, sy];
+          } else {
+            const [ex, ey] = this.applyOrtho(this.dimStart[0], this.dimStart[1], sx, sy, e);
+            if (Math.hypot(ex - this.dimStart[0], ey - this.dimStart[1]) > 0.02) {
+              app.project.dims = app.project.dims || [];
+              app.project.dims.push({ ax: this.dimStart[0], ay: this.dimStart[1], bx: ex, by: ey });
+              app.commit('新增尺寸標註');
+              if (app.updateDimUI) app.updateDimUI();
+            }
+            this.dimStart = null;
+          }
+          this.draw();
+          return;
+        }
+
         const hit = this.hitTest(px, py);
         if (hit) {
+          app.selectedDeskId = null;
           if (e.shiftKey || e.ctrlKey) {
             if (app.selection.has(hit.id)) app.selection.delete(hit.id); else app.selection.add(hit.id);
             app.onSelectionChanged();
@@ -505,22 +908,56 @@
             app.onSelectionChanged();
           }
           const sel = app.project.fixtures.filter((f) => app.selection.has(f.id));
-          this.drag = { kind: 'move', wx, wy, items: sel.map((f) => ({ f, x: f.x, y: f.y })), anchor: hit, moved: false };
-        } else {
-          if (!e.shiftKey) { app.selection = new Set(); app.onSelectionChanged(); }
-          this.drag = { kind: 'box', x0: px, y0: py, x1: px, y1: py, add: e.shiftKey };
+          if (app.tool === 'offset') {
+            this.drag = { kind: 'offset', wx: hit.x, wy: hit.y, items: sel.map((f) => ({ f, x: f.x, y: f.y })), ddx: 0, ddy: 0 };
+          } else {
+            this.drag = { kind: 'move', wx, wy, items: sel.map((f) => ({ f, x: f.x, y: f.y })), anchor: hit, moved: false };
+          }
+          return;
         }
+
+        // 檢查是否點選到辦公桌
+        const hitDesk = this.hitTestDesk(wx, wy);
+        if (hitDesk) {
+          app.selection = new Set();
+          app.selectedDeskId = hitDesk.id;
+          app.onSelectionChanged();
+          const db = LX.calc.polyBounds(hitDesk.polygon);
+          const cx = (db.minX + db.maxX) / 2, cy = (db.minY + db.maxY) / 2;
+          if (app.tool === 'offset') {
+            this.drag = { kind: 'offset', wx: cx, wy: cy, desk: hitDesk, ddx: 0, ddy: 0 };
+          } else {
+            this.drag = { kind: 'moveDesk', wx, wy, cx, cy, desk: hitDesk, origPoly: hitDesk.polygon.map((p) => [p[0], p[1]]), moved: false };
+          }
+          return;
+        }
+
+        if (app.tool === 'offset' && app.selection.size) {
+          const sel = app.project.fixtures.filter((f) => app.selection.has(f.id));
+          this.drag = { kind: 'offset', wx: sx, wy: sy, items: sel.map((f) => ({ f, x: f.x, y: f.y })), ddx: 0, ddy: 0 };
+          return;
+        }
+
+        app.selectedDeskId = null;
+        if (!e.shiftKey) { app.selection = new Set(); app.onSelectionChanged(); }
+        this.drag = { kind: 'box', x0: px, y0: py, x1: px, y1: py, add: e.shiftKey };
       });
 
       window.addEventListener('mousemove', (e) => {
+        this.lastEvent = e;
         const [px, py] = pos(e);
         const [wx, wy] = this.toWorld(px, py);
-        this.hover = { x: wx, y: wy, sx: this.snap(wx, e), sy: this.snap(wy, e) };
         const d = this.drag;
+        const excl = d && d.items ? new Set(d.items.map((it) => it.f.id)) : (d && d.desk ? new Set([d.desk.id]) : null);
+        const [sx, sy] = this.computeSmartSnap(wx, wy, e, excl);
+        this.hover = { x: wx, y: wy, sx, sy };
+
         if (!d) {
           if (e.target === cv) {
             this.app.onHover(wx, wy, sampleLux(this.result, wx, wy));
-            if (this.app.tool === 'add') this.draw();
+            if (this.app.tool === 'add' || this.app.tool === 'addDesk' || this.app.tool === 'dim' || (this.activeSnaps && this.activeSnaps.length)) {
+              this.draw();
+            }
           }
           return;
         }
@@ -530,13 +967,36 @@
           this.draw();
         } else if (d.kind === 'move') {
           let ddx = wx - d.wx, ddy = wy - d.wy;
-          // 以錨點燈具對齊格點
           const a = d.items.find((it) => it.f === d.anchor);
-          if (a) { ddx = this.snap(a.x + ddx, e) - a.x; ddy = this.snap(a.y + ddy, e) - a.y; }
+          if (a) {
+            let [tx, ty, ortho] = this.applyOrtho(a.x, a.y, a.x + ddx, a.y + ddy, e);
+            const [snx, sny] = this.computeSmartSnap(tx, ty, e, excl);
+            if (ortho) {
+              [tx, ty] = this.applyOrtho(a.x, a.y, snx, sny, e);
+            } else {
+              tx = snx; ty = sny;
+            }
+            ddx = tx - a.x; ddy = ty - a.y;
+          }
           if (Math.abs(ddx) + Math.abs(ddy) > 1e-6) d.moved = true;
           for (const it of d.items) { it.f.x = +(it.x + ddx).toFixed(3); it.f.y = +(it.y + ddy).toFixed(3); }
           this.app.requestCompute(true);
           this.app.onHover(wx, wy, sampleLux(this.result, wx, wy));
+        } else if (d.kind === 'moveDesk') {
+          let ddx = wx - d.wx, ddy = wy - d.wy;
+          let [tx, ty] = this.applyOrtho(d.cx, d.cy, d.cx + ddx, d.cy + ddy, e);
+          const [snx, sny] = this.computeSmartSnap(tx, ty, e, excl);
+          if (this.isOrtho(e)) [tx, ty] = this.applyOrtho(d.cx, d.cy, snx, sny, e);
+          else { tx = snx; ty = sny; }
+          ddx = tx - d.cx; ddy = ty - d.cy;
+          if (Math.abs(ddx) + Math.abs(ddy) > 1e-6) d.moved = true;
+          d.desk.polygon = d.origPoly.map(([x, y]) => [+(x + ddx).toFixed(3), +(y + ddy).toFixed(3)]);
+          this.app.requestCompute(true);
+        } else if (d.kind === 'offset') {
+          let [tx, ty] = this.applyOrtho(d.wx, d.wy, sx, sy, e);
+          d.ddx = +(tx - d.wx).toFixed(3);
+          d.ddy = +(ty - d.wy).toFixed(3);
+          this.draw();
         } else if (d.kind === 'box') {
           d.x1 = px; d.y1 = py;
           this.draw();
@@ -547,10 +1007,21 @@
         const d = this.drag;
         if (!d) return;
         this.drag = null;
+        this.activeSnaps = [];
         if (d.kind === 'move' && d.moved) {
           this.app.commit('移動燈具');
           this.app.requestCompute(false);
           this.app.onSelectionChanged();
+        } else if (d.kind === 'moveDesk' && d.moved) {
+          this.app.commit('移動辦公桌');
+          this.app.requestCompute(false);
+          this.app.onSelectionChanged();
+        } else if (d.kind === 'offset' && (Math.abs(d.ddx) + Math.abs(d.ddy) > 0.05)) {
+          if (d.desk && this.app.offsetCopyDesk) {
+            this.app.offsetCopyDesk(d.desk, d.ddx, d.ddy, 1);
+          } else if (this.app.offsetCopySelected) {
+            this.app.offsetCopySelected(d.ddx, d.ddy, 1);
+          }
         } else if (d.kind === 'box') {
           const [ax, ay] = this.toWorld(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
           const [bx, by] = this.toWorld(Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
@@ -560,6 +1031,8 @@
             this.app.selection = s;
             this.app.onSelectionChanged();
           }
+          this.draw();
+        } else {
           this.draw();
         }
       });
