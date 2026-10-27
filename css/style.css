@@ -116,17 +116,31 @@ h3 small { color: var(--muted); font-weight: 400; font-size: 11px; }
 .cat-tabs button { padding: 3px 7px; font-size: 11.5px; border-radius: 5px; }
 .cat-tabs button.on { background: #0c4a6e; border-color: #0369a1; color: #fff; }
 .chart-title { color: #cbd5e1; font-size: 11.5px; font-weight: 600; text-align: left; padding: 2px 4px 4px; }
+.fx-thumb {
+  width: 44px; height: 44px; flex-shrink: 0; border-radius: 6px;
+  background: radial-gradient(circle at 50% 45%, #1e293b 0%, #090d14 100%);
+  border: 1px solid #2b384e; display: flex; align-items: center; justify-content: center;
+}
+.fx-preview {
+  display: flex; align-items: center; gap: 8px; margin: 5px 0; padding: 6px 8px;
+  background: #0d131b; border: 1px solid var(--line); border-radius: 7px;
+}
+.fx-preview .fx-thumb { width: 46px; height: 46px; }
+.fx-preview .fx-meta { flex: 1; min-width: 0; line-height: 1.4; }
+.fx-preview .fx-meta .t { font-weight: 600; font-size: 12px; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-preview .fx-meta .s { font-size: 11px; color: #94a3b8; }
 .lib { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-height: 280px; overflow-y: auto; }
 .lib-item {
-  display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 6px 8px; border-radius: 6px;
-  background: var(--panel2); border: 1px solid transparent; cursor: pointer;
+  display: grid; grid-template-columns: 44px 1fr auto; gap: 2px 8px; padding: 6px 8px; border-radius: 6px;
+  background: var(--panel2); border: 1px solid transparent; cursor: pointer; align-items: center;
 }
 .lib-item:hover { border-color: var(--line); }
 .lib-item.on { border-color: var(--accent); background: #0f2a3a; }
-.lib-item .n { font-weight: 600; font-size: 12.5px; }
-.lib-item .m { color: var(--muted); font-size: 11px; grid-column: 1; }
+.lib-item .fx-thumb { grid-row: span 2; }
+.lib-item .n { font-weight: 600; font-size: 12px; grid-column: 2; }
+.lib-item .m { color: var(--muted); font-size: 11px; grid-column: 2; }
 .lib-item .tag { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: #312e81; color: #c7d2fe; margin-left: 4px; }
-.lib-item .ops { grid-row: span 2; display: flex; gap: 3px; align-items: center; }
+.lib-item .ops { grid-row: span 2; grid-column: 3; display: flex; gap: 3px; align-items: center; }
 .lib-item .ops button { padding: 1px 6px; font-size: 11px; }
 .polar-wrap { margin-top: 10px; background: #0d131b; border: 1px solid var(--line); border-radius: 8px; padding: 6px; text-align: center; }
 .polar-legend { display: flex; justify-content: center; gap: 14px; font-size: 11px; }

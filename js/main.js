@@ -380,6 +380,7 @@
     $('sOn').checked = f0.on !== false;
     const eff = f0.watts > 0 ? f0.lumens / f0.watts : 0;
     $('sEff').textContent = `光效 ${fmt(eff)} lm/W · 距工作面 ${fmt(f0.z - app.project.room.wp, 2)} m`;
+    renderPreviewCard('selPreview', app.typeById(f0.typeId));
   }
 
   function applySelField(key, value, final) {
@@ -401,19 +402,37 @@
   /* ======================= 燈具庫 ======================= */
   function typeBeam(t) { return Math.round(LX.calc.baseTable(t).beam); }
 
+  function renderPreviewCard(elId, t) {
+    const el = $(elId);
+    if (!el) return;
+    if (!t) { el.innerHTML = ''; return; }
+    const svg = LX.fixtureThumbSvg ? LX.fixtureThumbSvg(t, 44) : '';
+    const sub = [
+      t.series ? `[${t.series}]` : t.brand || '',
+      t.cutout || mountName(t.mount),
+      `${t.lumens} lm · ${t.watts} W · ${typeBeam(t)}° · ${t.cct || 4000}K`
+    ].filter(Boolean).join(' ｜ ');
+    el.innerHTML = `<div class="fx-thumb">${svg}</div><div class="fx-meta"><div class="t" title="${esc(t.name)}">${esc(t.name)}</div><div class="s">${esc(sub)}</div></div>`;
+  }
+
   function renderLibrary() {
     const allLib = app.project.library;
     const cat = app.activeCat || 'all';
-    const lib = cat === 'all' ? allLib : allLib.filter((t) => t.category === cat);
+    const lib = cat === 'all' ? allLib : allLib.filter((t) => (t.category || '').includes(cat));
     $('libCount').textContent = `${lib.length} / ${allLib.length} 款`;
     const counts = {};
     app.project.fixtures.forEach((f) => { counts[f.typeId] = (counts[f.typeId] || 0) + 1; });
-    $('libList').innerHTML = lib.map((t) => `
+    $('libList').innerHTML = lib.map((t) => {
+      const thumb = LX.fixtureThumbSvg ? LX.fixtureThumbSvg(t, 42) : '';
+      return `
       <div class="lib-item ${t.id === app.activeType ? 'on' : ''}" data-id="${t.id}">
-        <div class="n">${esc(t.name)}${t.source ? `<span class="tag">${t.source}</span>` : ''}${counts[t.id] ? `<span class="tag" style="background:#14532d;color:#bbf7d0">×${counts[t.id]}</span>` : ''}</div>
+        <div class="fx-thumb" title="${esc(t.series || t.category || '')}">${thumb}</div>
+        <div class="n">${esc(t.name)}${t.series ? `<span class="tag" style="background:#0c4a6e;color:#bae6fd">${esc(t.series)}</span>` : ''}${t.source ? `<span class="tag">${t.source}</span>` : ''}${counts[t.id] ? `<span class="tag" style="background:#14532d;color:#bbf7d0">×${counts[t.id]}</span>` : ''}</div>
         <div class="ops"><button data-op="edit" title="編輯">✎</button><button data-op="del" title="刪除">✕</button></div>
         <div class="m">${t.cutout ? esc(t.cutout) + ' · ' : ''}${t.lumens} lm · ${t.watts} W · ${typeBeam(t)}° · ${t.cct || '—'}K · Ra${t.cri || '—'}</div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
+    renderPreviewCard('autoPreview', app.typeById($('autoType') ? $('autoType').value : app.activeType));
   }
   function mountName(m) { return { recessed: '崁入', surface: '吸頂', pendant: '吊掛', track: '軌道' }[m] || m; }
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -427,11 +446,13 @@
       s.value = lib.some((t) => t.id === keep) ? keep : id === 'autoType' ? app.activeType : '';
     }
     if (!$('autoType').value) $('autoType').value = app.activeType;
+    renderPreviewCard('autoPreview', app.typeById($('autoType').value));
   }
 
   function setActiveType(id) {
     app.activeType = id;
     $('autoType').value = id;
+    renderPreviewCard('autoPreview', app.typeById(id));
     renderLibrary();
     renderPolar();
   }

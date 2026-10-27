@@ -88,9 +88,9 @@ ${res.ugr ? res.ugr.views.map((v) => `<tr><td>${v.name}</td><td class="n">${fmt(
 
 <h2>5. 燈具清單</h2>
 <table>
-<tr><th>#</th><th>型號</th><th>數量</th><th>流明 (lm)</th><th>瓦數 (W)</th><th>光效 (lm/W)</th><th>光束角</th><th>色溫</th><th>Ra</th><th>安裝</th><th>高度 (m)</th><th>小計 (W)</th></tr>
-${bom.map((g, i) => `<tr><td>${i + 1}</td><td>${esc(g.t.name)}${g.t.source ? ` <small>(${g.t.source})</small>` : ''}</td><td class="n">${g.n}</td><td class="n">${g.f.lumens}</td><td class="n">${g.f.watts}</td><td class="n">${fmt(g.f.lumens / g.f.watts)}</td><td class="n">${g.f.beam}°</td><td class="n">${g.t.cct || '—'}K</td><td class="n">${g.t.cri || '—'}</td><td>${LX.mountName(g.t.mount)}</td><td class="n">${g.f.z}</td><td class="n">${fmt(g.n * g.f.watts, 1)}</td></tr>`).join('')}
-<tr><th colspan="2">合計</th><th class="n">${res.count}</th><th colspan="8"></th><th class="n">${fmt(res.totalW, 1)}</th></tr>
+<tr><th>#</th><th>小樣</th><th>型號</th><th>數量</th><th>流明 (lm)</th><th>瓦數 (W)</th><th>光效 (lm/W)</th><th>光束角</th><th>色溫</th><th>Ra</th><th>安裝/開孔</th><th>高度 (m)</th><th>小計 (W)</th></tr>
+${bom.map((g, i) => `<tr><td>${i + 1}</td><td style="text-align:center;background:#0f172a;padding:3px">${LX.fixtureThumbSvg ? LX.fixtureThumbSvg(g.t, 34) : ''}</td><td>${esc(g.t.name)}${g.t.series ? ` <small style="color:#0369a1">[${esc(g.t.series)}]</small>` : ''}${g.t.source ? ` <small>(${g.t.source})</small>` : ''}</td><td class="n">${g.n}</td><td class="n">${g.f.lumens}</td><td class="n">${g.f.watts}</td><td class="n">${fmt(g.f.lumens / g.f.watts)}</td><td class="n">${g.f.beam}°</td><td class="n">${g.t.cct || '—'}K</td><td class="n">${g.t.cri || '—'}</td><td>${LX.mountName(g.t.mount)}${g.t.cutout ? ` / ${esc(g.t.cutout)}` : ''}</td><td class="n">${g.f.z}</td><td class="n">${fmt(g.n * g.f.watts, 1)}</td></tr>`).join('')}
+<tr><th colspan="3">合計</th><th class="n">${res.count}</th><th colspan="8"></th><th class="n">${fmt(res.totalW, 1)}</th></tr>
 </table>
 
 <h2>6. 計算方法與聲明</h2>
