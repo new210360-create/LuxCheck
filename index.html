@@ -177,6 +177,7 @@
         <label class="chk" title="智慧鎖點：自動吸附鄰燈對齊、桌面中心、牆面中心"><input type="checkbox" id="vOsnap" checked />鎖點</label>
         <label class="chk" title="正交移動 (F8 或按住 Shift)：鎖定水平/垂直移動"><input type="checkbox" id="vOrtho" />正交</label>
         <label class="chk" title="即時標註燈具中心間距與選取燈具距牆距離"><input type="checkbox" id="vSpacing" checked />燈距</label>
+        <label class="chk" title="隔間牆遮光：計入隔間牆與結構柱實體擋光，呈現真實遮蔽與陰影"><input type="checkbox" id="vWalls" checked />隔間遮光</label>
         <label class="chk"><input type="checkbox" id="vHeat" checked />熱圖</label>
         <label class="chk"><input type="checkbox" id="vIso" checked />等照度線</label>
         <label class="chk"><input type="checkbox" id="vVal" />數值</label>
@@ -376,6 +377,10 @@
           <div id="cadFixtureLayers" class="cad-checks"></div>
           <div id="cadFixtureBlocks" class="cad-checks"></div>
           <p class="hint">黃色方塊為 60×60 平板燈，青色圓形為 9.5/12/15cm 崁燈，自動分類帶入。</p>
+          <h3>5. 隔間牆遮光計算</h3>
+          <label class="chk" style="margin-bottom:6px"><input id="cadCalcWalls" type="checkbox" checked />計入隔間牆與結構柱遮光（效果更真實）</label>
+          <div id="cadWallLayers" class="cad-checks"></div>
+          <p class="hint">依 CAD 隔間牆線條實體阻擋直射光，呈現真實房間分區與陰影邊界。</p>
         </div>
         <div class="cad-preview-wrap"><canvas id="cadPreview" width="1000" height="680"></canvas><div id="cadPreviewInfo" class="cad-preview-info"></div></div>
       </div>

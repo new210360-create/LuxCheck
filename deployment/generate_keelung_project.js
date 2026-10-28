@@ -1,10 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-// Read analysis summary
 const summary = JSON.parse(fs.readFileSync('D:/codex/APP開發/LuxCheck/deployment/keelung-analysis-summary.json', 'utf8'));
 
-// Load default library
 const libCode = fs.readFileSync('D:/codex/APP開發/LuxCheck/js/library.js', 'utf8');
 const vm = require('vm');
 const sandbox = { window: {} };
@@ -12,7 +10,7 @@ vm.createContext(sandbox);
 vm.runInContext(libCode, sandbox);
 const defaultLibrary = sandbox.window.LX.DEFAULT_LIBRARY;
 
-const f1W = 10.2, f1L = 4.7, f1H = 2.8;
+const f1W = 10.2, f1L = 4.7, f1H = 3.0;
 
 const boundaryPoly = [
   [0, 0], [f1W, 0], [f1W, f1L], [0, f1L]
@@ -82,7 +80,7 @@ const project = {
   },
   standardId: 'office-open',
   target: { Em: 500, UGR: 19, U0: 0.6, Ra: 80 },
-  floorTarget: 150,
+  floorTarget: 100,
   lpdLimit: 12.0,
   library: defaultLibrary,
   fixtures: summary.fixtures.map((f, i) => ({
@@ -102,4 +100,4 @@ const project = {
 };
 
 fs.writeFileSync('D:/codex/APP開發/LuxCheck/samples/keelung-project.json', JSON.stringify(project, null, 2), 'utf8');
-console.log('Saved samples/keelung-project.json! Fixtures count:', project.fixtures.length);
+console.log('Saved samples/keelung-project.json with floorTarget: 100');

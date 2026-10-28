@@ -139,6 +139,27 @@
         g.add(new T.Line(eg, edgeMat));
       }
 
+      // 隔間牆 (3D 實體隔間牆面)
+      const allWalls = LX.cad && LX.cad.allWalls ? LX.cad.allWalls(pr) : (pr.cad?.walls || pr.walls || []);
+      const partWallMat = new T.MeshLambertMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.65, side: T.DoubleSide });
+      const partEdgeMat = new T.LineBasicMaterial({ color: 0x475569 });
+      for (const w of allWalls) {
+        const x1 = w.x1 ?? w.p1[0], y1 = w.y1 ?? w.p1[1];
+        const x2 = w.x2 ?? w.p2[0], y2 = w.y2 ?? w.p2[1];
+        const len = Math.hypot(x2 - x1, y2 - y1);
+        if (len < 0.1) continue;
+        const h = w.height || room.height || 2.8;
+        const pw = new T.Mesh(new T.PlaneGeometry(len, h), partWallMat);
+        pw.position.set((x1 + x2) / 2, h / 2, (y1 + y2) / 2);
+        pw.rotation.y = -Math.atan2(y2 - y1, x2 - x1);
+        g.add(pw);
+        const peg = new T.BufferGeometry().setFromPoints([
+          new T.Vector3(x1, 0, y1), new T.Vector3(x1, h, y1),
+          new T.Vector3(x2, h, y2), new T.Vector3(x2, 0, y2)
+        ]);
+        g.add(new T.Line(peg, partEdgeMat));
+      }
+
       // 燈具
       const lib = new Map(pr.library.map((t) => [t.id, t]));
       const lampOn = new T.MeshBasicMaterial({ color: 0xfffbe6 });

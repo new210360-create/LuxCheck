@@ -212,6 +212,23 @@
             }
           }
         }
+        // 隔間牆（真實牆體描繪）
+        const allWalls = LX.cad && LX.cad.allWalls ? LX.cad.allWalls(pr) : (pr.cad?.walls || pr.walls || []);
+        if (allWalls.length && v.walls !== false) {
+          ctx.save();
+          ctx.strokeStyle = forPrint ? '#0f172a' : '#cbd5e1';
+          ctx.lineWidth = forPrint ? 2.6 : 3.2;
+          ctx.lineCap = 'round';
+          for (const w of allWalls) {
+            const s1 = this.toScreen(w.x1 ?? w.p1[0], w.y1 ?? w.p1[1]);
+            const s2 = this.toScreen(w.x2 ?? w.p2[0], w.y2 ?? w.p2[1]);
+            ctx.beginPath();
+            ctx.moveTo(s1[0], s1[1]);
+            ctx.lineTo(s2[0], s2[1]);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
         ctx.restore();
       }
 

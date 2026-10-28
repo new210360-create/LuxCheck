@@ -23,7 +23,7 @@
     if(text.startsWith('AutoCAD Binary DXF'))throw Error('請將二進位 DXF 另存為 ASCII DXF 後匯入。');
     const doc=new DxfParser().parseSync(text);if(!doc?.entities?.length)throw Error('圖檔沒有可讀取的模型空間物件。');
     const paths=[],ignored={},warnings=new Set();let visits=0,pointCount=0;
-    const rawFixtures=[];
+    const rawFixtures=[],rawWalls=[];
     function walk(entities,m,inherit,group,blockName,depth,stack) {
       if(depth>16)throw Error('圖塊巢狀層級過深。');
       for(const e of entities) {
@@ -69,6 +69,14 @@
         if(points.length>2&&Math.hypot(points[0][0]-points.at(-1)[0],points[0][1]-points.at(-1)[1])<1e-7){points.pop();closed=true;}
         paths.push({id:'p'+paths.length,layer,block:blockName||'',group:group||'',points,closed});
         pointCount+=points.length;if(pointCount>400000)throw Error('圖檔線段過多，請先簡化或另存區域。');
+        if(points.length>=2&&/牆|wall|隔間|柱|partition/i.test(layer)){
+          for(let i=0;i<points.length-1;i++){
+            rawWalls.push({layer,block:blockName||'',p1:points[i],p2:points[i+1]});
+          }
+          if(closed&&points.length>2){
+            rawWalls.push({layer,block:blockName||'',p1:points[points.length-1],p2:points[0]});
+          }
+        }
         if(e.type==='CIRCLE') {
           const ptC=apply(m,[e.center.x,e.center.y]),cr=e.radius*Math.hypot(m[0],m[1]);
           rawFixtures.push({type:'CIRCLE',layer,block:blockName||'',x:ptC[0],y:ptC[1],r:cr,dia:cr*2});
@@ -83,7 +91,7 @@
     if(!paths.length)throw Error('沒有支援的平面線段、圓弧或多段線。');
     const unit=doc.header?.$INSUNITS||0;
     const units={1:0.0254,2:0.3048,4:0.001,5:0.01,6:1,7:1000,10:0.9144,14:0.1};
-    return {paths,unit,unitScale:units[unit]||null,warnings:[...warnings],ignored,bounds:bounds(paths),rawFixtures};
+    return {paths,unit,unitScale:units[unit]||null,warnings:[...warnings],ignored,bounds:bounds(paths),rawFixtures,rawWalls};
   }
   // Stitch a network only where each vertex has exactly two edges. Branches remain unclassified.
   function contours(paths) {
@@ -198,11 +206,37 @@
         });
       }
     }
+    // Partition wall extraction
+    const wallLayers=new Set(options.wallLayers||[]);
+    const walls=[];
+    if(Array.isArray(model.rawWalls)){
+      for(const rw of model.rawWalls){
+        const isWallLayer=wallLayers.has(rw.layer)||/牆|wall|隔間|柱|partition/i.test(rw.layer);
+        if(!isWallLayer)continue;
+        const p1=transform(rw.p1),p2=transform(rw.p2);
+        if(Math.hypot(p2[0]-p1[0],p2[1]-p1[1])<0.04)continue;
+        if(Math.max(p1[0],p2[0])<-0.2||Math.min(p1[0],p2[0])>b.w*scale+0.2||Math.max(p1[1],p2[1])<-0.2||Math.min(p1[1],p2[1])>b.h*scale+0.2)continue;
+        walls.push({
+          p1,p2,
+          x1:+p1[0].toFixed(3),y1:+p1[1].toFixed(3),
+          x2:+p2[0].toFixed(3),y2:+p2[1].toFixed(3),
+          minX:+Math.min(p1[0],p2[0]).toFixed(3),
+          maxX:+Math.max(p1[0],p2[0]).toFixed(3),
+          minY:+Math.min(p1[1],p2[1]).toFixed(3),
+          maxY:+Math.max(p1[1],p2[1]).toFixed(3),
+          height:Number(options.wallHeight||2.8),
+          layer:rw.layer
+        });
+      }
+    }
     const background=model.paths.filter(p=>{const bb=bounds([p]);return bb.maxX>=b.minX&&bb.minX<=b.maxX&&bb.maxY>=b.minY&&bb.minY<=b.maxY;}).map(p=>({...p,points:p.points.map(transform)}));
-    return {polygon,desks,fixtures,background,scale,width:b.w*scale,length:b.h*scale,area:area(polygon),rejected,origin:[b.minX,b.maxY],unit:model.unit};
+    return {polygon,desks,fixtures,walls,background,scale,width:b.w*scale,length:b.h*scale,area:area(polygon),rejected,origin:[b.minX,b.maxY],unit:model.unit};
   }
   function allDesks(project) {
     return [...(project?.cad?.desks || []), ...(project?.desks || [])];
+  }
+  function allWalls(project) {
+    return [...(project?.cad?.walls || []), ...(project?.walls || [])];
   }
   function hasZoneMode(project) {
     return Boolean(project?.cad || (project?.desks && project.desks.length > 0));
@@ -212,5 +246,5 @@
     const desk=allDesks(project).find(d=>LX.calc.pointInPoly(x,y,d.polygon));
     return {height:desk?(desk.height??0.75):0,kind:desk?'desk':'floor',desk:desk||null};
   }
-  LX.cad={parse,contours,bounds,build,area,validPolygon,surfaceAt,allDesks,hasZoneMode};
+  LX.cad={parse,contours,bounds,build,area,validPolygon,surfaceAt,allDesks,allWalls,hasZoneMode};
 })(window.LX=window.LX||{});

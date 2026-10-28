@@ -127,8 +127,8 @@
     "shape": "rect",
     "L": 10.2,
     "W": 4.7,
-    "H": 2.8,
-    "height": 2.8,
+    "H": 3,
+    "height": 3,
     "wp": 0,
     "margin": 0.3,
     "mf": 0.8,
@@ -162,7 +162,7 @@
     "U0": 0.6,
     "Ra": 80
   },
-  "floorTarget": 150,
+  "floorTarget": 100,
   "lpdLimit": 12,
   "library": [
     {

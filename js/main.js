@@ -75,7 +75,7 @@
     activeType: null,
     activeCat: 'all',
     addRot: 0,
-    view: { heatmap: true, isolux: true, values: false, beams: false, observers: true, osnap: true, ortho: false, spacing: true, colorMode: 'target', snap: 0.05, mode: '2d' },
+    view: { heatmap: true, isolux: true, values: false, beams: false, observers: true, osnap: true, ortho: false, spacing: true, walls: true, colorMode: 'target', snap: 0.05, mode: '2d' },
     result: null,
     undoStack: [],
     redoStack: [],
@@ -608,7 +608,9 @@
     $('sXrow').style.display = $('sYrow').style.display = sel.length === 1 ? '' : 'none';
     $('sX').value = f0.x.toFixed(2);
     $('sY').value = f0.y.toFixed(2);
-    $('sZr').max = app.project.room.height;
+    const maxH = Math.max(3.0, app.project.room.height || app.project.room.H || 3.0);
+    app.project.room.height = app.project.room.H = maxH;
+    $('sZr').max = maxH;
     $('sZr').min = Math.max(0.5, (app.allDesks().length ? 0.75 : app.project.room.wp) + 0.2);
     for (const [num, rng, key, d] of selFields) {
       const v = f0[key] == null ? (key === 'dim' ? 100 : 0) : f0[key];
@@ -650,7 +652,10 @@
     const sel = app.selected();
     if (!sel.length || !isFinite(value)) return;
     for (const f of sel) {
-      if (key === 'z') value = Math.max((app.allDesks().length ? 0.75 : app.project.room.wp) + 0.1, Math.min(app.project.room.height, value));
+      if (key === 'z') {
+        const maxZ = Math.max(3.0, app.project.room.height || app.project.room.H || 3.0);
+        value = Math.max((app.allDesks().length ? 0.75 : app.project.room.wp) + 0.1, Math.min(maxZ, value));
+      }
       f[key] = value;
     }
     if (final) { app.commit(); fillSelectionUI(); }
@@ -1208,10 +1213,19 @@
     // 工具列
     document.querySelectorAll('#toolSeg button').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
     document.querySelectorAll('#viewSeg button').forEach((b) => b.addEventListener('click', () => setViewMode(b.dataset.view)));
-    [['vOsnap', 'osnap'], ['vOrtho', 'ortho'], ['vSpacing', 'spacing'], ['vHeat', 'heatmap'], ['vIso', 'isolux'], ['vVal', 'values'], ['vBeam', 'beams'], ['vObs', 'observers']].forEach(([id, k]) => {
+    [['vOsnap', 'osnap'], ['vOrtho', 'ortho'], ['vSpacing', 'spacing'], ['vWalls', 'walls'], ['vHeat', 'heatmap'], ['vIso', 'isolux'], ['vVal', 'values'], ['vBeam', 'beams'], ['vObs', 'observers']].forEach(([id, k]) => {
       if (!$(id)) return;
       $(id).checked = app.view[k];
-      $(id).addEventListener('change', (e) => { app.view[k] = e.target.checked; app.plan.draw(); if (k === 'beams') app.v3d.rebuild(); });
+      $(id).addEventListener('change', (e) => {
+        app.view[k] = e.target.checked;
+        if (k === 'walls') {
+          app.requestCompute(false);
+          app.v3d.rebuild();
+        } else if (k === 'beams') {
+          app.v3d.rebuild();
+        }
+        app.plan.draw();
+      });
     });
     if ($('btnClearDims')) {
       $('btnClearDims').addEventListener('click', () => {

@@ -10,6 +10,8 @@
     deskBlocks:selection('cadDeskBlocks'),
     fixtureLayers:selection('cadFixtureLayers'),
     fixtureBlocks:selection('cadFixtureBlocks'),
+    wallLayers:selection('cadWallLayers'),
+    calcWalls:$('cadCalcWalls')?.checked!==false,
     autoFixtures:$('cadAutoFixtures')?.checked!==false,
     manual:[...manual],
     excluded:[...excluded]
@@ -26,6 +28,7 @@
     checklist('cadDeskBlocks',blocks,previous?.roles?.deskBlocks||blocks.filter(v=>/desk|table|桌|工作站|workstation/i.test(v)&&!/chair|椅/i.test(v)));
     checklist('cadFixtureLayers',layers,previous?.roles?.fixtureLayers||layers.filter(v=>/燈|light|lamp|luminaire|fixture|led/i.test(v)));
     checklist('cadFixtureBlocks',blocks,previous?.roles?.fixtureBlocks||blocks.filter(v=>/燈|light|lamp|luminaire|downlight|panel|spot/i.test(v)));
+    checklist('cadWallLayers',layers,previous?.roles?.wallLayers||layers.filter(v=>/牆|wall|隔間|柱|partition/i.test(v)));
     $('cadBoundary').innerHTML='<option value="">請選擇空間封閉輪廓</option>'+all.map((p,i)=>`<option value="${p.id}">${i+1}. ${esc(p.layer)}${p.block?' / '+esc(p.block):''} · ${p.area.toFixed(2)} CAD²</option>`).join('');
     const likely=all.find(p=>/room|boundary|space|空間|範圍|外框/i.test(p.layer)&&!/sheet|圖框/i.test(p.layer));
     $('cadBoundary').value=previous?.roles?.boundary||(likely?.id||'');
@@ -157,12 +160,14 @@
     };
     function applyBuiltCad(built,opts){
       const p=app.project,previousCad=p.cad;app.commit();
-      p.cad={filename,sourceHash:staged.sourceHash,desks:built.desks,background:built.background,sourcePaths:staged.paths,sourceWarnings:staged.warnings,ignored:staged.ignored,unit:staged.unit,scale:built.scale,origin:built.origin,roles:opts||options()};
+      p.cad={filename,sourceHash:staged.sourceHash,desks:built.desks,walls:built.walls||[],background:built.background,sourcePaths:staged.paths,sourceWarnings:staged.warnings,ignored:staged.ignored,unit:staged.unit,scale:built.scale,origin:built.origin,roles:opts||options()};
+      p.walls=built.walls||[];
+      p.calcWalls=opts?.calcWalls!==false;
       p.floorTarget=p.floorTarget||100;p.room.polygon=built.polygon;p.room.shape='custom';p.room.L=built.width;p.room.W=built.length;p.room.wp=0;p.room.grid=0;
+      p.room.height=p.room.H=Math.max(3.0,p.room.height||p.room.H||3.0,...(built.fixtures||[]).map(f=>f.z));
       if(!p.name||/^未命名專案$|^開放式辦公室（範例）$/.test(p.name))p.name=filename.replace(/\.(dwg|dxf)$/i,'');
       if(built.fixtures&&built.fixtures.length>0&&$('cadAutoFixtures')?.checked!==false){
         p.fixtures=built.fixtures;
-        p.room.H=Math.max(p.room.H||3.0,...built.fixtures.map(f=>f.z));
       }else if($('cadClearFixtures').checked){
         p.fixtures=[];
       }else if(previousCad?.scale&&previousCad.origin&&previousCad.sourceHash===staged.sourceHash){
@@ -193,6 +198,7 @@
         if(bCand)$('cadBoundary').value=bCand.id;
         const dLayers=[...new Set(staged.paths.map(p=>p.layer))].filter(v=>/desk|table|桌|家具|工作站/i.test(v)&&!/chair|椅|天花/i.test(v));
         const fLayers=[...new Set(staged.paths.map(p=>p.layer))].filter(v=>/燈|light|lamp|luminaire|fixture|led/i.test(v));
+        const wLayers=[...new Set(staged.paths.map(p=>p.layer))].filter(v=>/牆|wall|隔間|柱|partition/i.test(v));
         const opts={
           boundary:$('cadBoundary').value||(all[0]?all[0].id:''),
           scale,
@@ -200,6 +206,8 @@
           deskBlocks:[],
           fixtureLayers:fLayers,
           fixtureBlocks:[],
+          wallLayers:wLayers,
+          calcWalls:true,
           autoFixtures:true,
           manual:[],
           excluded:[]

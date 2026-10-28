@@ -125,12 +125,38 @@
     return [P.lookup(src.tbl, c, g) * src.k, g];
   }
 
-  /** 單點水平照度（直接光） */
-  function directAt(sources, x, y, z) {
+  function rayIntersectsWall(ax, ay, bx, by, cx, cy, dx, dy) {
+    const d0 = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+    if (Math.abs(d0) < 1e-9) return null;
+    const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / d0;
+    const u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / d0;
+    if (t > 0.002 && t < 0.998 && u > 0.002 && u < 0.998) return t;
+    return null;
+  }
+
+  function isBlockedByWall(sx, sy, sz, gx, gy, gz, walls) {
+    const minRx = Math.min(sx, gx), maxRx = Math.max(sx, gx);
+    const minRy = Math.min(sy, gy), maxRy = Math.max(sy, gy);
+    for (let k = 0; k < walls.length; k++) {
+      const w = walls[k];
+      if (minRx > (w.maxX ?? Math.max(w.x1, w.x2)) || maxRx < (w.minX ?? Math.min(w.x1, w.x2)) ||
+          minRy > (w.maxY ?? Math.max(w.y1, w.y2)) || maxRy < (w.minY ?? Math.min(w.y1, w.y2))) continue;
+      const t = rayIntersectsWall(sx, sy, gx, gy, w.x1 ?? w.p1[0], w.y1 ?? w.p1[1], w.x2 ?? w.p2[0], w.y2 ?? w.p2[1]);
+      if (t !== null) {
+        const zRay = sz + t * (gz - sz);
+        if (zRay <= (w.height ?? 2.8)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** 單點水平照度（直接光，可納入隔間牆遮光） */
+  function directAt(sources, x, y, z, walls) {
     let e = 0;
     for (const s of sources) {
       const dx = x - s.x, dy = y - s.y, dz = z - s.z;
       if (dz >= 0) continue;
+      if (walls && walls.length && isBlockedByWall(s.x, s.y, s.z, x, y, z, walls)) continue;
       const d2 = dx * dx + dy * dy + dz * dz;
       const I = intensityToward(s, dx, dy, dz)[0];
       e += (I * (-dz / Math.sqrt(d2))) / d2;
@@ -172,6 +198,9 @@
     const margin = room.margin || 0;
     const zw = room.wp;
     const sources = buildSources(project);
+    const walls = (project.calcWalls !== false && project.view?.walls !== false)
+      ? (LX.cad && LX.cad.allWalls ? LX.cad.allWalls(project) : (project.cad?.walls || project.walls || []))
+      : [];
 
     for (let j = 0; j < ny; j++) {
       const y = b.minY + (j + 0.5) * dy;
@@ -186,24 +215,29 @@
       }
     }
 
-    // 直接光
+    // 直接光（納入隔間牆遮蔽）
     for (const s of sources) {
       for (let j = 0; j < ny; j++) {
-        const yy = b.minY + (j + 0.5) * dy - s.y;
+        const yPt = b.minY + (j + 0.5) * dy;
+        const yy = yPt - s.y;
         for (let i = 0; i < nx; i++) {
           const idx = j * nx + i;
           if (!mask[idx]) continue;
+          const xPt = b.minX + (i + 0.5) * dx;
           const dz = heights[idx] - s.z;
           if (dz >= 0) continue;
+          if (walls.length && isBlockedByWall(s.x, s.y, s.z, xPt, yPt, heights[idx], walls)) continue;
           const dz2 = dz * dz;
-          const xx = b.minX + (i + 0.5) * dx - s.x;
+          const xx = xPt - s.x;
           const d2 = xx * xx + yy * yy + dz2;
           const I = intensityToward(s, xx, yy, dz)[0];
           if (I > 0) values[idx] += (I * (-dz / Math.sqrt(d2))) / d2;
           if (floorDirect) {
-            const fdz = -s.z, fd2 = xx * xx + yy * yy + fdz * fdz;
-            const fi = surfaceKinds[idx] ? intensityToward(s, xx, yy, fdz)[0] : I;
-            if (fi > 0) floorDirect[idx] += (fi * (-fdz / Math.sqrt(fd2))) / fd2;
+            if (!walls.length || !isBlockedByWall(s.x, s.y, s.z, xPt, yPt, 0, walls)) {
+              const fdz = -s.z, fd2 = xx * xx + yy * yy + fdz * fdz;
+              const fi = surfaceKinds[idx] ? intensityToward(s, xx, yy, fdz)[0] : I;
+              if (fi > 0) floorDirect[idx] += (fi * (-fdz / Math.sqrt(fd2))) / fd2;
+            }
           }
         }
       }
