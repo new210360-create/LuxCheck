@@ -23,6 +23,7 @@
     if(text.startsWith('AutoCAD Binary DXF'))throw Error('請將二進位 DXF 另存為 ASCII DXF 後匯入。');
     const doc=new DxfParser().parseSync(text);if(!doc?.entities?.length)throw Error('圖檔沒有可讀取的模型空間物件。');
     const paths=[],ignored={},warnings=new Set();let visits=0,pointCount=0;
+    const rawFixtures=[];
     function walk(entities,m,inherit,group,blockName,depth,stack) {
       if(depth>16)throw Error('圖塊巢狀層級過深。');
       for(const e of entities) {
@@ -30,6 +31,8 @@
         if(e.inPaperSpace||e.visible===false)continue;
         const layer=e.layer==='0'&&inherit?inherit:(e.layer||'0');
         if(e.type==='INSERT') {
+          const ptIns=apply(m,[e.position?.x||0,e.position?.y||0]);
+          rawFixtures.push({type:'INSERT',layer,block:e.name,x:ptIns[0],y:ptIns[1],rot:e.rotation||0});
           const block=doc.blocks?.[e.name];
           if(!block?.entities||stack.includes(e.name)){warnings.add('部分外部參考或循環圖塊未展開');continue;}
           const r=(e.rotation||0)*Math.PI/180,sx=e.xScale??1,sy=e.yScale??1,p=e.position||{},base=block.position||{};
@@ -66,13 +69,21 @@
         if(points.length>2&&Math.hypot(points[0][0]-points.at(-1)[0],points[0][1]-points.at(-1)[1])<1e-7){points.pop();closed=true;}
         paths.push({id:'p'+paths.length,layer,block:blockName||'',group:group||'',points,closed});
         pointCount+=points.length;if(pointCount>400000)throw Error('圖檔線段過多，請先簡化或另存區域。');
+        if(e.type==='CIRCLE') {
+          const ptC=apply(m,[e.center.x,e.center.y]),cr=e.radius*Math.hypot(m[0],m[1]);
+          rawFixtures.push({type:'CIRCLE',layer,block:blockName||'',x:ptC[0],y:ptC[1],r:cr,dia:cr*2});
+        } else if(closed&&points.length>=4&&points.length<=6) {
+          const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
+          const rw=Math.max(...xs)-Math.min(...xs),rh=Math.max(...ys)-Math.min(...ys);
+          rawFixtures.push({type:'RECT',layer,block:blockName||'',x:(Math.max(...xs)+Math.min(...xs))/2,y:(Math.max(...ys)+Math.min(...ys))/2,w:rw,h:rh});
+        }
       }
     }
     walk(doc.entities,identity,'','','',0,[]);
     if(!paths.length)throw Error('沒有支援的平面線段、圓弧或多段線。');
     const unit=doc.header?.$INSUNITS||0;
     const units={1:0.0254,2:0.3048,4:0.001,5:0.01,6:1,7:1000,10:0.9144,14:0.1};
-    return {paths,unit,unitScale:units[unit]||null,warnings:[...warnings],ignored,bounds:bounds(paths)};
+    return {paths,unit,unitScale:units[unit]||null,warnings:[...warnings],ignored,bounds:bounds(paths),rawFixtures};
   }
   // Stitch a network only where each vertex has exactly two edges. Branches remain unclassified.
   function contours(paths) {
@@ -140,8 +151,55 @@
       desks.push({id:'desk-'+desks.length,name:'桌面 '+(desks.length+1),polygon:points,height:0.75,layer:c.layer,block:c.block,sourceId:c.id});
     }
     if(desks.length>1000)throw Error('辨識超過 1,000 個桌面，請縮小圖層或區域。');
+    // Automatic luminaire identification
+    const fixLayers=new Set(options.fixtureLayers||[]),fixBlocks=new Set(options.fixtureBlocks||[]);
+    const autoFixtures=options.autoFixtures!==false;
+    const fixtures=[],seenFix=[];
+    if(autoFixtures&&Array.isArray(model.rawFixtures)){
+      for(const rf of model.rawFixtures){
+        const isFixLayer=fixLayers.has(rf.layer)||/燈|light|lamp|luminaire|fixture|led/i.test(rf.layer);
+        const isFixBlock=fixBlocks.has(rf.block)||/燈|light|lamp|luminaire|downlight|panel|spot/i.test(rf.block);
+        if(!isFixLayer&&!isFixBlock)continue;
+        const pRoom=transform([rf.x,rf.y]);
+        if(!inside(pRoom,polygon))continue;
+        if(seenFix.some(s=>Math.hypot(s.x-pRoom[0],s.y-pRoom[1])<0.18))continue;
+        seenFix.push({x:pRoom[0],y:pRoom[1]});
+
+        let typeId='dl-panel-6060-ugr19',name='舞光 60×60 低眩光平板燈 30W (UGR<19)',lm=3300,w=30,beam=85,susp=0;
+        const rw=(rf.w||0)*scale,rh=(rf.h||0)*scale,rDia=(rf.dia||(rf.r?rf.r*2:0))*scale;
+        const tag=(rf.layer+' '+(rf.block||'')).toLowerCase();
+        if(tag.includes('投射')||tag.includes('軌道')||tag.includes('spot')||tag.includes('track')){
+          typeId='dl-tr-cupid-15w';name='舞光 邱比特軌道投射燈 15W 36°';lm=1200;w=15;beam=36;susp=0.15;
+        }else if(rw>=0.8||rh>=0.8){
+          typeId='dl-panel-30120-40w';name='舞光 120×30 長型柔光平板燈 40W';lm=4000;w=40;beam=112;
+        }else if(rw>=0.45&&rw<=0.75&&rh>=0.45&&rh<=0.75){
+          typeId='dl-panel-6060-ugr19';name='舞光 60×60 低眩光平板燈 30W (UGR<19)';lm=3300;w=30;beam=85;
+        }else if(rDia>0.135||tag.includes('15')||tag.includes('150')){
+          typeId='dl-150-thor-15w';name='舞光 15cm 索爾崁燈 15W (廣角)';lm=1500;w=15;beam=115;
+        }else if(rDia>0.112||tag.includes('12')||tag.includes('120')){
+          typeId='dl-120-thor-12w';name='舞光 12cm 索爾崁燈 12W';lm=1150;w=12;beam=110;
+        }else{
+          typeId='dl-95-bd-12w';name='舞光 9.5cm 黑鑽石防眩崁燈 12W';lm=1050;w=12;beam=36;
+        }
+        fixtures.push({
+          id:'cad-fix-'+fixtures.length,
+          typeId,name,
+          x:+pRoom[0].toFixed(3),
+          y:+pRoom[1].toFixed(3),
+          z:2.7,
+          lumens:lm,
+          watts:w,
+          beam,
+          dim:100,
+          tilt:0,
+          rot:+(rf.rot||0).toFixed(1),
+          sourceLayer:rf.layer,
+          sourceBlock:rf.block
+        });
+      }
+    }
     const background=model.paths.filter(p=>{const bb=bounds([p]);return bb.maxX>=b.minX&&bb.minX<=b.maxX&&bb.maxY>=b.minY&&bb.minY<=b.maxY;}).map(p=>({...p,points:p.points.map(transform)}));
-    return {polygon,desks,background,scale,width:b.w*scale,length:b.h*scale,area:area(polygon),rejected,origin:[b.minX,b.maxY],unit:model.unit};
+    return {polygon,desks,fixtures,background,scale,width:b.w*scale,length:b.h*scale,area:area(polygon),rejected,origin:[b.minX,b.maxY],unit:model.unit};
   }
   function allDesks(project) {
     return [...(project?.cad?.desks || []), ...(project?.desks || [])];

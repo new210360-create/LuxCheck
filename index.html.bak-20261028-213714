@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LuxCheck 辦公空間照明照度檢核模擬平台</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">◎</span> LuxCheck <small>辦公照明照度檢核</small></div>
+    <input id="projName" class="proj-name" value="未命名專案" title="專案名稱" />
+    <div class="actions">
+      <button id="btnNew" title="新專案">新專案</button>
+      <button id="btnCad" class="primary" title="匯入 CAD 平面與辦公桌">匯入 CAD</button>
+      <button id="btnOpen" title="開啟專案 (.json)">開啟</button>
+      <button id="btnSave" title="儲存專案 (.json)">儲存</button>
+      <span class="sep"></span>
+      <button id="btnUndo" title="復原 Ctrl+Z">↶</button>
+      <button id="btnRedo" title="重做 Ctrl+Y">↷</button>
+      <span class="sep"></span>
+      <button id="btnBom" title="匯出燈具清單 CSV">燈具清單</button>
+      <button id="btnPng" title="匯出平面照度圖 PNG">照度圖</button>
+      <button id="btnReport" class="primary" title="產生檢核報告（可列印 PDF）">檢核報告</button>
+    </div>
+    <input type="file" id="fileProject" accept=".json" hidden />
+    <input type="file" id="filePhoto" accept=".ies,.IES,.ldt,.LDT" multiple hidden />
+    <input type="file" id="fileLib" accept=".json" hidden />
+  </header>
+
+  <div class="layout">
+    <!-- ========== 左側：空間 / 標準 / 自動佈燈 ========== -->
+    <aside class="panel left">
+      <section id="cadSummary" class="hidden">
+        <h3>CAD 空間與計算面</h3>
+        <p id="cadInfo" class="hint"></p>
+        <div class="row"><label>桌面高度</label><strong>0.75 m（75 cm）</strong></div>
+        <div class="row"><label>其餘區域</label><strong>地面 0.00 m</strong></div>
+        <div class="row"><label>地面目標 (lx)</label><input id="floorTarget" type="number" min="1" max="2000" step="10" value="100" /></div>
+        <label class="chk"><input id="vCad" type="checkbox" checked />顯示 CAD 線條／桌面</label>
+        <div class="btns"><button id="btnCadEdit">調整 CAD 辨識</button><button id="btnCadRemove">移除 CAD 底圖</button></div>
+        <p class="hint">桌面與地面分別檢核。藍色輪廓為桌面，可將游標移到圖上查看計算高度。</p>
+      </section>
+      <section id="deskManageSection">
+        <h3>辦公桌面配置與套用 <small id="deskCountBadge">0 張</small></h3>
+        <div class="row"><label>桌型規格</label>
+          <select id="deskPreset">
+            <option value="1.4x0.7">標準單人桌 1.4 × 0.7 m</option>
+            <option value="1.2x0.7">緊湊單人桌 1.2 × 0.7 m</option>
+            <option value="1.6x0.8">主管辦公桌 1.6 × 0.8 m</option>
+            <option value="1.4x1.4">雙人對座桌 1.4 × 1.4 m</option>
+            <option value="2.8x1.4">四人島型工作站 2.8 × 1.4 m</option>
+            <option value="2.4x1.2">小型會議桌 2.4 × 1.2 m</option>
+            <option value="3.6x1.4">大型會議桌 3.6 × 1.4 m</option>
+            <option value="custom">自訂長寬尺寸</option>
+          </select>
+        </div>
+        <div class="grid2">
+          <div class="row"><label>桌長 (m)</label><input type="number" id="deskL" step="0.1" min="0.4" value="1.4" /></div>
+          <div class="row"><label>桌寬 (m)</label><input type="number" id="deskW" step="0.1" min="0.4" value="0.7" /></div>
+        </div>
+        <div class="grid2">
+          <div class="row"><label>排桌 列(X)</label><input type="number" id="deskNx" step="1" min="1" max="30" value="4" /></div>
+          <div class="row"><label>排桌 行(Y)</label><input type="number" id="deskNy" step="1" min="1" max="30" value="2" /></div>
+        </div>
+        <div class="btns">
+          <button id="btnAddDeskTool" class="primary" title="在平面圖上點擊放置辦公桌（按 R 可旋轉）">➕ 點擊增設辦公桌</button>
+          <button id="btnAutoDesks" title="依上方列×行在空間內批次排列辦公桌">批次排入辦公桌</button>
+        </div>
+        <div class="btns">
+          <button id="btnDeskLights" title="在每張辦公桌正上方自動對位配置燈具">依桌面對位佈燈</button>
+          <button id="btnClearDesks" class="danger small">清除增設桌面</button>
+        </div>
+        <p class="hint">增設辦公桌後自動啟用「桌面 0.75m ＋ 地面 0m」分區計算，並連動評估桌面照度與達標覆蓋率。</p>
+      </section>
+      <section>
+        <h3>空間設定</h3>
+        <div class="row"><label>形狀</label>
+          <select id="roomShape">
+            <option value="rect">矩形</option>
+            <option value="L">L 形</option>
+            <option value="custom">自訂多邊形</option>
+          </select>
+        </div>
+        <div class="grid2" id="rectFields">
+          <div class="row"><label>長 (m)</label><input type="number" id="roomL" step="0.1" min="1" /></div>
+          <div class="row"><label>寬 (m)</label><input type="number" id="roomW" step="0.1" min="1" /></div>
+        </div>
+        <div class="grid2" id="lFields">
+          <div class="row"><label>缺角長 (m)</label><input type="number" id="cutL" step="0.1" min="0" /></div>
+          <div class="row"><label>缺角寬 (m)</label><input type="number" id="cutW" step="0.1" min="0" /></div>
+        </div>
+        <div class="row col" id="polyFields">
+          <label>頂點座標（每行 x,y，單位 m）</label>
+          <textarea id="polyText" rows="5" spellcheck="false"></textarea>
+          <button id="btnApplyPoly" class="small">套用多邊形</button>
+        </div>
+        <div class="grid2">
+          <div class="row"><label>天花高 (m)</label><input type="number" id="roomH" step="0.05" min="2" /></div>
+          <div class="row"><label>一般工作面 (m)</label><input type="number" id="roomWp" step="0.05" min="0" /></div>
+          <div class="row"><label>牆邊排除帶 (m)</label><input type="number" id="roomMargin" step="0.1" min="0" /></div>
+          <div class="row"><label>維護係數 MF</label><input type="number" id="roomMf" step="0.01" min="0.3" max="1" /></div>
+        </div>
+        <div class="sub">表面反射率</div>
+        <div class="slider-row"><label>天花</label><input type="range" id="rhoC" min="0" max="0.9" step="0.05" /><output id="rhoCv"></output></div>
+        <div class="slider-row"><label>牆面</label><input type="range" id="rhoW" min="0" max="0.9" step="0.05" /><output id="rhoWv"></output></div>
+        <div class="slider-row"><label>地面</label><input type="range" id="rhoF" min="0" max="0.9" step="0.05" /><output id="rhoFv"></output></div>
+        <div class="row"><label>計算格點</label>
+          <select id="gridSel">
+            <option value="0">自動</option>
+            <option value="0.1">0.10 m</option>
+            <option value="0.25">0.25 m</option>
+            <option value="0.5">0.50 m</option>
+            <option value="1">1.00 m</option>
+          </select>
+        </div>
+      </section>
+
+      <section>
+        <h3>檢核標準 <small>CNS 12112 / EN 12464-1</small></h3>
+        <div class="row"><label>空間類型</label><select id="stdSel"></select></div>
+        <div class="grid2">
+          <div class="row"><label>維持照度 Em (lx)</label><input type="number" id="tEm" step="10" min="0" /></div>
+          <div class="row"><label>UGR 上限</label><input type="number" id="tUGR" step="1" min="10" /></div>
+          <div class="row"><label>均齊度 U₀ ≥</label><input type="number" id="tU0" step="0.05" min="0" max="1" /></div>
+          <div class="row"><label>演色性 Ra ≥</label><input type="number" id="tRa" step="5" min="0" /></div>
+          <div class="row"><label>LPD 上限 (W/m²)</label><input type="number" id="tLpd" step="0.5" min="0" /></div>
+        </div>
+      </section>
+
+      <section>
+        <h3>自動佈燈</h3>
+        <div class="row"><label>燈具</label><select id="autoType"></select></div>
+        <div id="autoPreview" class="fx-preview"></div>
+        <div class="row"><label>模式</label>
+          <select id="autoMode">
+            <option value="target">自動達到目標照度與均齊度</option>
+            <option value="grid">指定排列（列 × 行）</option>
+            <option value="desks">依辦公桌中心對位佈燈</option>
+          </select>
+        </div>
+        <div class="grid2" id="autoGridFields">
+          <div class="row"><label>X 向數量</label><input type="number" id="autoNx" min="1" value="6" /></div>
+          <div class="row"><label>Y 向數量</label><input type="number" id="autoNy" min="1" value="4" /></div>
+        </div>
+        <div class="grid2">
+          <div class="row"><label>燈具方向</label>
+            <select id="autoRot"><option value="auto">沿長邊</option><option value="0">0°（X 向）</option><option value="90">90°（Y 向）</option></select>
+          </div>
+          <div class="row"><label>新增／佈燈高度 (m)</label><input type="number" id="autoZ" step="0.05" placeholder="依安裝方式" /></div>
+        </div>
+        <p class="hint">高度為燈具發光面距地面。崁燈可設為天花高度；軌道燈可降低高度並選取調整投射傾角。</p>
+        <div class="btns">
+          <button id="btnAuto" class="primary">自動佈燈（取代）</button>
+          <button id="btnClear" class="danger">清除全部燈具</button>
+        </div>
+        <p class="hint" id="autoInfo"></p>
+      </section>
+    </aside>
+
+    <!-- ========== 中央：視圖 ========== -->
+    <main class="center">
+      <div class="toolbar">
+        <div class="seg" id="toolSeg">
+          <button data-tool="select" class="on" title="選取 / 移動燈具或辦公桌 (V)">選取</button>
+          <button data-tool="add" title="點擊放置燈具 (A)">放置燈具</button>
+          <button data-tool="addDesk" title="點擊增設辦公桌 (K)">增設辦公桌</button>
+          <button data-tool="offset" title="選取燈具或辦公桌後拖曳偏移複製 (O)">偏移複製</button>
+          <button data-tool="dim" title="點擊兩點量測並標註尺寸 (M)">尺寸</button>
+          <button data-tool="pan" title="平移 (H，或按住空白鍵 / 右鍵)">平移</button>
+        </div>
+        <div class="seg" id="viewSeg">
+          <button data-view="2d" class="on">2D 平面</button>
+          <button data-view="3d">3D 檢視</button>
+        </div>
+        <label class="chk" title="智慧鎖點：自動吸附鄰燈對齊、桌面中心、牆面中心"><input type="checkbox" id="vOsnap" checked />鎖點</label>
+        <label class="chk" title="正交移動 (F8 或按住 Shift)：鎖定水平/垂直移動"><input type="checkbox" id="vOrtho" />正交</label>
+        <label class="chk" title="即時標註燈具中心間距與選取燈具距牆距離"><input type="checkbox" id="vSpacing" checked />燈距</label>
+        <label class="chk"><input type="checkbox" id="vHeat" checked />熱圖</label>
+        <label class="chk"><input type="checkbox" id="vIso" checked />等照度線</label>
+        <label class="chk"><input type="checkbox" id="vVal" />數值</label>
+        <label class="chk"><input type="checkbox" id="vBeam" />光束範圍</label>
+        <label class="chk"><input type="checkbox" id="vObs" checked />UGR 觀察點</label>
+        <select id="vColor" title="色階">
+          <option value="target">色階：以目標照度為中心</option>
+          <option value="abs">色階：0 ~ 最大值</option>
+        </select>
+        <select id="vSnap" title="吸附">
+          <option value="0.05">吸附 5 cm</option>
+          <option value="0.1">吸附 10 cm</option>
+          <option value="0.3">吸附 30 cm</option>
+          <option value="0.6">吸附 60 cm（天花板模矩）</option>
+          <option value="0">不吸附</option>
+        </select>
+        <button id="btnClearDims" class="small hidden" title="清除手動尺寸標註">清標註</button>
+        <button id="btnFit" class="small" title="縮放至全圖 (F)">全圖</button>
+      </div>
+      <div class="viewport">
+        <div id="wrap2d" class="view-wrap"><canvas id="plan"></canvas></div>
+        <div id="wrap3d" class="view-wrap hidden"></div>
+        <div id="busy" class="busy hidden">計算中…</div>
+      </div>
+      <div class="statusbar">
+        <span id="stPos">x — , y —</span>
+        <span id="stLux">— lx</span>
+        <span id="stSpacing" class="spacing-pill"></span>
+        <span id="stCalc"></span>
+        <span class="grow"></span>
+        <span class="keys">V 選取 ｜ A 放燈 ｜ K 放桌 ｜ O 偏移複製 ｜ M 尺寸 ｜ F8/Shift 正交 ｜ R 旋轉 ｜ Del 刪除</span>
+      </div>
+    </main>
+
+    <!-- ========== 右側：結果 / 燈具 ========== -->
+    <aside class="panel right">
+      <section>
+        <h3>檢核結果 <span id="overall" class="badge"></span></h3>
+        <div class="kpis" id="kpis"></div>
+        <details><summary>查看調整建議</summary><ul class="advice" id="advice"></ul></details>
+      </section>
+
+      <section id="surfaceSection">
+        <h3>桌面／分區照度與覆蓋率評估</h3>
+        <div id="surfaceResults"></div>
+      </section>
+
+      <section id="deskSelSection" class="hidden">
+        <h3>選取辦公桌 <small id="deskSelName"></small></h3>
+        <div class="grid2">
+          <div class="row"><label>中心 X (m)</label><input type="number" id="dSelX" step="0.05" /></div>
+          <div class="row"><label>中心 Y (m)</label><input type="number" id="dSelY" step="0.05" /></div>
+          <div class="row"><label>桌長 (m)</label><input type="number" id="dSelL" step="0.1" min="0.4" /></div>
+          <div class="row"><label>桌寬 (m)</label><input type="number" id="dSelW" step="0.1" min="0.4" /></div>
+        </div>
+        <div class="btns">
+          <button id="btnDeskRot">旋轉 90°</button>
+          <button id="btnDeskDup">偏移複製</button>
+          <button id="btnDeskDel" class="danger">刪除辦公桌</button>
+        </div>
+      </section>
+
+      <section id="selSection" class="hidden">
+        <h3>選取燈具 <small id="selCount"></small></h3>
+        <div class="row"><label>型號</label><select id="sType"></select></div>
+        <div id="selPreview" class="fx-preview"></div>
+        <div class="grid2">
+          <div class="row" id="sXrow"><label>X (m)</label><input type="number" id="sX" step="0.05" /></div>
+          <div class="row" id="sYrow"><label>Y (m)</label><input type="number" id="sY" step="0.05" /></div>
+        </div>
+        <div id="selSpacingInfo" class="spacing-box"></div>
+        <div class="slider-row big"><label>燈具高度</label><input type="range" id="sZr" min="1" max="12" step="0.05" /><input type="number" id="sZ" step="0.05" /><span class="unit">m</span></div>
+        <div class="slider-row big"><label>流明</label><input type="range" id="sLmr" min="100" max="20000" step="50" /><input type="number" id="sLm" step="50" /><span class="unit">lm</span></div>
+        <div class="slider-row big"><label>瓦數</label><input type="range" id="sWr" min="1" max="200" step="0.5" /><input type="number" id="sW" step="0.5" /><span class="unit">W</span></div>
+        <div class="slider-row big"><label>光束角</label><input type="range" id="sBr" min="10" max="150" step="1" /><input type="number" id="sB" step="1" /><span class="unit">°</span></div>
+        <div class="slider-row big"><label>投射傾角</label><input type="range" id="sTr" min="0" max="60" step="1" /><input type="number" id="sT" step="1" /><span class="unit">°</span></div>
+        <div class="slider-row big"><label>旋轉</label><input type="range" id="sRr" min="0" max="355" step="5" /><input type="number" id="sR" step="5" /><span class="unit">°</span></div>
+        <div class="slider-row big"><label>調光</label><input type="range" id="sDr" min="0" max="100" step="5" /><input type="number" id="sD" step="5" /><span class="unit">%</span></div>
+        <div class="row inline"><label class="chk"><input type="checkbox" id="sOn" />開燈</label><span class="hint" id="sEff"></span></div>
+        <div class="sub">對齊與正交等距均布（多選燈具）</div>
+        <div class="btns">
+          <button id="btnAlignH" class="small" title="將選取燈具對齊同一水平線 (同 Y)">水平對齊</button>
+          <button id="btnAlignV" class="small" title="將選取燈具對齊同一垂直線 (同 X)">垂直對齊</button>
+          <button id="btnDistH" class="small" title="將選取燈具沿 X 軸等距均布">X 等距</button>
+          <button id="btnDistV" class="small" title="將選取燈具沿 Y 軸等距均布">Y 等距</button>
+        </div>
+        <div class="sub">偏移複製（指定間距 × 數量）</div>
+        <div class="grid3">
+          <div class="row"><label>ΔX (m)</label><input type="number" id="offDx" step="0.1" value="2.4" /></div>
+          <div class="row"><label>ΔY (m)</label><input type="number" id="offDy" step="0.1" value="0" /></div>
+          <div class="row"><label>份數</label><input type="number" id="offCount" step="1" min="1" max="30" value="1" /></div>
+        </div>
+        <div class="btns">
+          <button id="btnOffsetCopy" class="primary small" title="依 ΔX, ΔY 與份數執行偏移複製">執行偏移複製</button>
+          <button id="btnApplyType" class="small" title="將目前數值套用到同型號全部燈具">套用同型號</button>
+          <button id="btnDup" class="small">快速複製</button>
+          <button id="btnDel" class="danger small">刪除</button>
+        </div>
+      </section>
+
+      <section>
+        <h3>全部燈具批次調整</h3>
+        <div class="grid2">
+          <div class="row"><label>統一高度 (m)</label><input type="number" id="gZ" step="0.05" /></div>
+          <div class="row"><label>統一調光 (%)</label><input type="number" id="gD" step="5" min="0" max="100" /></div>
+        </div>
+        <div class="btns"><button id="btnGlobal" class="small">套用至全部燈具</button></div>
+      </section>
+
+      <section>
+        <h3>舞光 / 常用燈具庫 <small id="libCount"></small></h3>
+        <div class="btns">
+          <button id="btnImport" class="primary" title="匯入廠商配光檔 IES / LDT（可多選）">匯入 IES / LDT</button>
+          <button id="btnNewType">新增自訂</button>
+        </div>
+        <div class="cat-tabs" id="catTabs">
+          <button data-cat="all" class="on">全部</button>
+          <button data-cat="平板燈">平板燈</button>
+          <button data-cat="9.5cm崁燈">9.5崁燈</button>
+          <button data-cat="12cm崁燈">12崁燈</button>
+          <button data-cat="15cm崁燈">15崁燈</button>
+          <button data-cat="投射燈">投射燈</button>
+          <button data-cat="線型燈">線型燈</button>
+        </div>
+        <div class="lib" id="libList"></div>
+        <div class="polar-wrap">
+          <div class="chart-title">單燈距離光照圖（1m / 2m / 3m 光錐與桌面光斑）</div>
+          <canvas id="coneChart" width="286" height="210"></canvas>
+          <div class="chart-title" style="margin-top:6px">配光曲線圖（極座標 cd）</div>
+          <canvas id="polar" width="260" height="200"></canvas>
+          <div class="polar-legend"><span class="c0">━ C0-C180</span><span class="c90">━ C90-C270</span></div>
+        </div>
+        <div class="btns">
+          <button id="btnLibExport" class="small">匯出燈具庫</button>
+          <button id="btnLibImport" class="small">匯入燈具庫</button>
+          <button id="btnLibReset" class="small">還原預設</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- 燈具型號編輯 -->
+  <dialog id="typeDlg">
+    <form method="dialog" class="dlg">
+      <h3 id="typeDlgTitle">燈具型號</h3>
+      <div class="grid2">
+        <div class="row span2"><label>名稱</label><input id="tName" required /></div>
+        <div class="row"><label>類別</label><input id="tCat" /></div>
+        <div class="row"><label>廠牌 / 型號</label><input id="tBrand" /></div>
+        <div class="row"><label>流明 (lm)</label><input type="number" id="tLm" step="10" /></div>
+        <div class="row"><label>瓦數 (W)</label><input type="number" id="tW" step="0.5" /></div>
+        <div class="row"><label>色溫 (K)</label><input type="number" id="tCct" step="100" /></div>
+        <div class="row"><label>演色性 Ra</label><input type="number" id="tCri" step="1" /></div>
+        <div class="row"><label>發光長度 (m)</label><input type="number" id="tLen" step="0.01" /></div>
+        <div class="row"><label>發光寬度 (m)</label><input type="number" id="tWid" step="0.01" /></div>
+        <div class="row"><label>外型</label><select id="tShape"><option value="rect">方形 / 線型</option><option value="round">圓形</option></select></div>
+        <div class="row"><label>安裝方式</label>
+          <select id="tMount"><option value="recessed">崁入</option><option value="surface">吸頂</option><option value="pendant">吊掛</option><option value="track">軌道</option></select>
+        </div>
+        <div class="row"><label>吊掛長度 (m)</label><input type="number" id="tSusp" step="0.05" /></div>
+        <div class="row gen-only"><label>光束角 C0 (°)</label><input type="number" id="tBeam" step="1" /></div>
+        <div class="row gen-only"><label>光束角 C90 (°)</label><input type="number" id="tBeam90" step="1" placeholder="同 C0" /></div>
+        <div class="row gen-only"><label>上照比例 (%)</label><input type="number" id="tUp" step="5" min="0" max="90" /></div>
+      </div>
+      <p class="hint" id="tPhotoInfo"></p>
+      <div class="btns right">
+        <button value="cancel" formnovalidate>取消</button>
+        <button value="ok" class="primary">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <input type="file" id="fileCad" accept=".dxf,.dwg" hidden />
+  <dialog id="cadDlg" class="cad-dialog">
+    <div class="dlg">
+      <div class="cad-heading"><div><h2>匯入 CAD 空間</h2><p id="cadFileName" class="hint"></p></div><button id="cadCancel">取消</button></div>
+      <div class="cad-layout">
+        <div class="cad-options">
+          <div class="row col"><label>1. 圖面單位</label><select id="cadUnit"><option value="">未定義，請選擇</option><option value="0.001">毫米 mm</option><option value="0.01">公分 cm</option><option value="1">公尺 m</option><option value="0.0254">英吋 in</option><option value="0.3048">英呎 ft</option><option value="custom">自訂／尺寸校正</option></select></div>
+          <div class="row col"><label>每 CAD 單位 = 公尺</label><input id="cadScale" type="number" min="0.000001" step="any" /></div>
+          <div class="btns"><button id="cadMeasure">點兩點校正</button><input id="cadKnown" type="number" min="0.001" step="0.01" placeholder="實際距離 m" aria-label="兩點實際距離公尺" /></div>
+          <p id="cadMeasureInfo" class="hint">可輸入圖面單位，或選兩個已知距離的端點校正。</p>
+          <div class="row col"><label>2. 空間邊界（封閉輪廓）</label><select id="cadBoundary"></select></div>
+          <div class="btns"><button id="cadDrawBoundary">手動圈選空間</button><button id="cadFinishBoundary" disabled>完成圈選</button></div>
+          <p class="hint">綠色線框為計算範圍，請排除圖框。沒有封閉邊界時，請先在 CAD 畫封閉多段線。</p>
+          <h3>3. 辦公桌圖層</h3><div id="cadDeskLayers" class="cad-checks"></div>
+          <h3>辦公桌圖塊</h3><div id="cadDeskBlocks" class="cad-checks"></div>
+          <p class="hint">僅將選定的封閉輪廓視為桌面。可點預覽中的封閉輪廓，個別加入或排除桌面。藍色填色為選定桌面，請核對椅子與櫃子。</p>
+        </div>
+        <div class="cad-preview-wrap"><canvas id="cadPreview" width="1000" height="680"></canvas><div id="cadPreviewInfo" class="cad-preview-info"></div></div>
+      </div>
+      <p id="cadWarning" class="hint" role="status"></p>
+      <div class="cad-footer"><label class="chk"><input id="cadClearFixtures" type="checkbox" checked />套用時清除原有燈具，重新配置</label><button id="cadApply" class="primary">套用空間與桌面</button></div>
+    </div>
+  </dialog>
+  <!-- 本機離線套件 -->
+  <script src="vendor/dxf-parser.js"></script>
+  <script src="vendor/three.min.js"></script>
+  <script src="vendor/OrbitControls.js"></script>
+  <script src="js/photometry.js"></script>
+  <script src="js/library.js"></script>
+  <script src="js/standards.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/cad.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/render2d.js"></script>
+  <script src="js/view3d.js"></script>
+  <script src="js/report.js"></script>
+  <script src="js/main.js"></script>
+  <script src="js/cad-ui.js"></script>
+</body>
+</html>

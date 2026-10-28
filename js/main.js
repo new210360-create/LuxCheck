@@ -81,8 +81,14 @@
     redoStack: [],
 
     async init() {
-      const saved = await LX.storage.read();
-      this.project = saved && saved.room && saved.library ? saved : defaultProject();
+      let loaded = await LX.storage.read();
+      if (!loaded || !loaded.room || !loaded.fixtures || !loaded.fixtures.length || loaded.name === '開放式辦公室（範例）') {
+        try {
+          const res = await fetch('samples/keelung-project.json');
+          if (res.ok) loaded = await res.json();
+        } catch (_) {}
+      }
+      this.project = loaded && loaded.room && loaded.library ? loaded : defaultProject();
       this.project.library = mergeDefaultLibrary(this.project.library);
       this.project.desks = this.project.desks || [];
       this.project.dims = this.project.dims || [];
@@ -93,6 +99,7 @@
       this.refreshAll();
       this.undoStack = [this.snapshot()];
       window.dispatchEvent(new Event('luxcheck-ready'));
+      setTimeout(() => this.plan && this.plan.fit && this.plan.fit(), 100);
     },
 
     snapshot() {
@@ -1346,6 +1353,29 @@
     });
 
     // 檔案
+    const btnKeelung = $('btnLoadKeelung');
+    if (btnKeelung) {
+      btnKeelung.addEventListener('click', async () => {
+        try {
+          const res = await fetch('samples/keelung-project.json');
+          if (!res.ok) throw new Error('無法讀取基隆廠施工圖專案檔');
+          const p = await res.json();
+          p.library = mergeDefaultLibrary(p.library);
+          p.desks = p.desks || [];
+          p.dims = p.dims || [];
+          LX.calc.clearCache();
+          app.project = p;
+          app.selection.clear();
+          app.selectedDeskId = null;
+          app.commit();
+          app.refreshAll();
+          app.plan.fit();
+          await LX.storage.save(app.project);
+        } catch (err) {
+          alert('載入失敗：' + err.message);
+        }
+      });
+    }
     $('btnNew').addEventListener('click', () => {
       if (!confirm('建立新專案？（目前專案將被取代，建議先儲存）')) return;
       const lib = app.project.library;

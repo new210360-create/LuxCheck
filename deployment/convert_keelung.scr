@@ -1,0 +1,5 @@
+(setvar "FILEDIA" 0)
+(setvar "CMDECHO" 0)
+(command "_.DXFOUT" "D:/codex/APP??/LuxCheck/deployment/keelung.dxf" "16")
+(command "_.QUIT" "_N")
+

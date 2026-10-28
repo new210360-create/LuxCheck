@@ -3,9 +3,20 @@
   const $=id=>document.getElementById(id), esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   let staged=null,all=[],manual=new Set(),excluded=new Set(),measuring=false,measure=[],projection=null,filename='',lastBuild=null,drawingBoundary=false,boundaryPoints=[];
   const selection=id=>[...$(id).querySelectorAll('input:checked')].map(c=>c.value);
-  const options=()=>({boundary:$('cadBoundary').value,scale:Number($('cadScale').value),deskLayers:selection('cadDeskLayers'),deskBlocks:selection('cadDeskBlocks'),manual:[...manual],excluded:[...excluded]});
+  const options=()=>({
+    boundary:$('cadBoundary').value,
+    scale:Number($('cadScale').value),
+    deskLayers:selection('cadDeskLayers'),
+    deskBlocks:selection('cadDeskBlocks'),
+    fixtureLayers:selection('cadFixtureLayers'),
+    fixtureBlocks:selection('cadFixtureBlocks'),
+    autoFixtures:$('cadAutoFixtures')?.checked!==false,
+    manual:[...manual],
+    excluded:[...excluded]
+  });
   function checklist(id,values,selected) {
-    $(id).innerHTML=values.length?values.map(v=>`<label><input type="checkbox" value="${esc(v)}" ${selected.includes(v)?'checked':''}>${esc(v)}</label>`).join(''):'<span class="hint">沒有可選圖塊</span>';
+    const el=$(id);if(!el)return;
+    el.innerHTML=values.length?values.map(v=>`<label><input type="checkbox" value="${esc(v)}" ${selected.includes(v)?'checked':''}>${esc(v)}</label>`).join(''):'<span class="hint">沒有可選項目</span>';
   }
   function show(model,name,previous) {
     staged=model;filename=name;all=LX.cad.contours(model.paths);manual=new Set(previous?.roles?.manual||[]);excluded=new Set(previous?.roles?.excluded||[]);measure=[];measuring=false;drawingBoundary=false;boundaryPoints=[];
@@ -13,6 +24,8 @@
     const layers=[...new Set(model.paths.map(p=>p.layer))].sort(),blocks=[...new Set(model.paths.map(p=>p.block).filter(Boolean))].sort();
     checklist('cadDeskLayers',layers,previous?.roles?.deskLayers||layers.filter(v=>/desk|table|桌|工作站|workstation/i.test(v)&&!/chair|椅|ceiling|天花/i.test(v)));
     checklist('cadDeskBlocks',blocks,previous?.roles?.deskBlocks||blocks.filter(v=>/desk|table|桌|工作站|workstation/i.test(v)&&!/chair|椅/i.test(v)));
+    checklist('cadFixtureLayers',layers,previous?.roles?.fixtureLayers||layers.filter(v=>/燈|light|lamp|luminaire|fixture|led/i.test(v)));
+    checklist('cadFixtureBlocks',blocks,previous?.roles?.fixtureBlocks||blocks.filter(v=>/燈|light|lamp|luminaire|downlight|panel|spot/i.test(v)));
     $('cadBoundary').innerHTML='<option value="">請選擇空間封閉輪廓</option>'+all.map((p,i)=>`<option value="${p.id}">${i+1}. ${esc(p.layer)}${p.block?' / '+esc(p.block):''} · ${p.area.toFixed(2)} CAD²</option>`).join('');
     const likely=all.find(p=>/room|boundary|space|空間|範圍|外框/i.test(p.layer)&&!/sheet|圖框/i.test(p.layer));
     $('cadBoundary').value=previous?.roles?.boundary||(likely?.id||'');
@@ -39,7 +52,20 @@
       lastBuild=LX.cad.build(staged,options());
       const ids=new Set(lastBuild.desks.map(d=>d.sourceId));
       for(const p of all.filter(p=>ids.has(p.id))){trace(p);ctx.fillStyle='rgba(56,189,248,.28)';ctx.fill();ctx.strokeStyle='#38bdf8';ctx.lineWidth=2.4;ctx.stroke();}
-      message=`${lastBuild.width.toFixed(2)} × ${lastBuild.length.toFixed(2)} m · ${lastBuild.area.toFixed(2)} m² · ${lastBuild.desks.length} 個桌面（75 cm）`;
+      if(lastBuild.fixtures&&lastBuild.fixtures.length){
+        for(const f of lastBuild.fixtures){
+          const rawX=b.minX+f.x/lastBuild.scale,rawY=b.maxY-f.y/lastBuild.scale;
+          const [sx,sy]=screen([rawX,rawY]);
+          if(f.typeId.includes('panel')){
+            ctx.fillStyle='#fef08a';ctx.strokeStyle='#eab308';ctx.lineWidth=1.5;
+            ctx.fillRect(sx-6,sy-6,12,12);ctx.strokeRect(sx-6,sy-6,12,12);
+          }else{
+            ctx.fillStyle='#38bdf8';ctx.strokeStyle='#ffffff';ctx.lineWidth=1.2;
+            ctx.beginPath();ctx.arc(sx,sy,4.5,0,Math.PI*2);ctx.fill();ctx.stroke();
+          }
+        }
+      }
+      message=`${lastBuild.width.toFixed(2)} × ${lastBuild.length.toFixed(2)} m · ${lastBuild.area.toFixed(2)} m² · ${lastBuild.desks.length} 個桌面 · ${(lastBuild.fixtures?.length||0)} 盞燈具（自動辨識）`;
       if(lastBuild.rejected)message+=` · ${lastBuild.rejected} 個輪廓在範圍外或無效，未匯入`;
       $('cadApply').disabled=false;
     }catch(e){message=e.message;$('cadApply').disabled=true;}
@@ -129,22 +155,58 @@
       const selected=lastBuild?.desks.some(d=>d.sourceId===hit.id);
       if(selected){excluded.add(hit.id);manual.delete(hit.id);}else{manual.add(hit.id);excluded.delete(hit.id);}draw();
     };
+    function applyBuiltCad(built,opts){
+      const p=app.project,previousCad=p.cad;app.commit();
+      p.cad={filename,sourceHash:staged.sourceHash,desks:built.desks,background:built.background,sourcePaths:staged.paths,sourceWarnings:staged.warnings,ignored:staged.ignored,unit:staged.unit,scale:built.scale,origin:built.origin,roles:opts||options()};
+      p.floorTarget=p.floorTarget||100;p.room.polygon=built.polygon;p.room.shape='custom';p.room.L=built.width;p.room.W=built.length;p.room.wp=0;p.room.grid=0;
+      if(!p.name||/^未命名專案$|^開放式辦公室（範例）$/.test(p.name))p.name=filename.replace(/\.(dwg|dxf)$/i,'');
+      if(built.fixtures&&built.fixtures.length>0&&$('cadAutoFixtures')?.checked!==false){
+        p.fixtures=built.fixtures;
+        p.room.H=Math.max(p.room.H||3.0,...built.fixtures.map(f=>f.z));
+      }else if($('cadClearFixtures').checked){
+        p.fixtures=[];
+      }else if(previousCad?.scale&&previousCad.origin&&previousCad.sourceHash===staged.sourceHash){
+        for(const f of p.fixtures){
+          const rawX=f.x/previousCad.scale+previousCad.origin[0],rawY=previousCad.origin[1]-f.y/previousCad.scale;
+          f.x=(rawX-built.origin[0])*built.scale;f.y=(built.origin[1]-rawY)*built.scale;
+        }
+        p.fixtures=p.fixtures.filter(f=>LX.calc.pointInPoly(f.x,f.y,built.polygon));
+      }
+      app.selection.clear();app.commit();app.refreshAll();app.plan.fit();$('cadDlg').close();
+    }
     $('cadApply').onclick=()=>{
       try{
-        const built=LX.cad.build(staged,options()),p=app.project,previousCad=p.cad;app.commit();
-        p.cad={filename,sourceHash:staged.sourceHash,desks:built.desks,background:built.background,sourcePaths:staged.paths,sourceWarnings:staged.warnings,ignored:staged.ignored,unit:staged.unit,scale:built.scale,origin:built.origin,roles:options()};
-        p.floorTarget=p.floorTarget||100;p.room.polygon=built.polygon;p.room.shape='custom';p.room.L=built.width;p.room.W=built.length;p.room.wp=0;p.room.grid=0;
-        if(!p.name||/^未命名專案$|^開放式辦公室（範例）$/.test(p.name))p.name=filename.replace(/\.(dwg|dxf)$/i,'');
-        if($('cadClearFixtures').checked)p.fixtures=[];
-        else {
-          if(previousCad?.scale&&previousCad.origin&&previousCad.sourceHash===staged.sourceHash)for(const f of p.fixtures){
-            const rawX=f.x/previousCad.scale+previousCad.origin[0],rawY=previousCad.origin[1]-f.y/previousCad.scale;
-            f.x=(rawX-built.origin[0])*built.scale;f.y=(built.origin[1]-rawY)*built.scale;
-          }
-          p.fixtures=p.fixtures.filter(f=>LX.calc.pointInPoly(f.x,f.y,built.polygon));
-        }
-        app.selection.clear();app.commit();app.refreshAll();app.plan.fit();$('cadDlg').close();
+        const built=LX.cad.build(staged,options());
+        applyBuiltCad(built,options());
       }catch(error){$('cadWarning').textContent=error.message;}
+    };
+    const autoBtn=$('cadAutoAll');
+    if(autoBtn)autoBtn.onclick=()=>{
+      try{
+        const scale=staged.unitScale||0.001;
+        $('cadScale').value=scale;
+        let bCand=all.find(p=>/room|boundary|space|空間|範圍|外框/i.test(p.layer)&&!/sheet|圖框/i.test(p.layer));
+        if(!bCand){
+          const rooms=all.filter(p=>{const a=p.area*scale*scale;return a>=12&&a<=2500;}).sort((a,b)=>b.area-a.area);
+          if(rooms.length)bCand=rooms[0];
+        }
+        if(bCand)$('cadBoundary').value=bCand.id;
+        const dLayers=[...new Set(staged.paths.map(p=>p.layer))].filter(v=>/desk|table|桌|家具|工作站/i.test(v)&&!/chair|椅|天花/i.test(v));
+        const fLayers=[...new Set(staged.paths.map(p=>p.layer))].filter(v=>/燈|light|lamp|luminaire|fixture|led/i.test(v));
+        const opts={
+          boundary:$('cadBoundary').value||(all[0]?all[0].id:''),
+          scale,
+          deskLayers:dLayers,
+          deskBlocks:[],
+          fixtureLayers:fLayers,
+          fixtureBlocks:[],
+          autoFixtures:true,
+          manual:[],
+          excluded:[]
+        };
+        const built=LX.cad.build(staged,opts);
+        applyBuiltCad(built,opts);
+      }catch(error){$('cadWarning').textContent='一鍵智慧帶入提示：'+error.message;}
     };
     $('btnCadEdit').onclick=()=>{const cad=app.project.cad;if(cad)show({sourceHash:cad.sourceHash,paths:cad.sourcePaths,unit:cad.unit,unitScale:cad.scale,warnings:cad.sourceWarnings||[],ignored:cad.ignored||{},bounds:LX.cad.bounds(cad.sourcePaths)},cad.filename,cad);};
     $('btnCadRemove').onclick=()=>{app.project.cad=null;app.project.room.wp=0.75;app.commit();app.refreshAll();};

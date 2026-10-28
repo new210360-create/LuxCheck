@@ -12,6 +12,7 @@
     <input id="projName" class="proj-name" value="未命名專案" title="專案名稱" />
     <div class="actions">
       <button id="btnNew" title="新專案">新專案</button>
+      <button id="btnLoadKeelung" class="primary" style="background:#0284c7;border-color:#38bdf8;font-weight:600" title="立即帶入基隆廠施工圖全配：1F格局 + 33盞舞光燈具 + 4組工作桌與接待櫃台">⚡ 帶入基隆廠施工圖全配</button>
       <button id="btnCad" class="primary" title="匯入 CAD 平面與辦公桌">匯入 CAD</button>
       <button id="btnOpen" title="開啟專案 (.json)">開啟</button>
       <button id="btnSave" title="儲存專案 (.json)">儲存</button>
@@ -351,7 +352,13 @@
   <input type="file" id="fileCad" accept=".dxf,.dwg" hidden />
   <dialog id="cadDlg" class="cad-dialog">
     <div class="dlg">
-      <div class="cad-heading"><div><h2>匯入 CAD 空間</h2><p id="cadFileName" class="hint"></p></div><button id="cadCancel">取消</button></div>
+      <div class="cad-heading">
+        <div><h2>匯入 CAD 空間與全配</h2><p id="cadFileName" class="hint"></p></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="cadAutoAll" class="primary" style="background:#059669;border-color:#34d399;font-weight:600" title="自動判斷單位、空間邊界、辦公桌面與舞光燈具，直接全部帶入">⚡ 一鍵智慧帶入全配（格局＋燈具＋家具）</button>
+          <button id="cadCancel">取消</button>
+        </div>
+      </div>
       <div class="cad-layout">
         <div class="cad-options">
           <div class="row col"><label>1. 圖面單位</label><select id="cadUnit"><option value="">未定義，請選擇</option><option value="0.001">毫米 mm</option><option value="0.01">公分 cm</option><option value="1">公尺 m</option><option value="0.0254">英吋 in</option><option value="0.3048">英呎 ft</option><option value="custom">自訂／尺寸校正</option></select></div>
@@ -364,11 +371,16 @@
           <h3>3. 辦公桌圖層</h3><div id="cadDeskLayers" class="cad-checks"></div>
           <h3>辦公桌圖塊</h3><div id="cadDeskBlocks" class="cad-checks"></div>
           <p class="hint">僅將選定的封閉輪廓視為桌面。可點預覽中的封閉輪廓，個別加入或排除桌面。藍色填色為選定桌面，請核對椅子與櫃子。</p>
+          <h3>4. 燈具自動辨識（舞光燈型）</h3>
+          <label class="chk" style="margin-bottom:6px"><input id="cadAutoFixtures" type="checkbox" checked />自動從 CAD 辨識並帶入燈具</label>
+          <div id="cadFixtureLayers" class="cad-checks"></div>
+          <div id="cadFixtureBlocks" class="cad-checks"></div>
+          <p class="hint">黃色方塊為 60×60 平板燈，青色圓形為 9.5/12/15cm 崁燈，自動分類帶入。</p>
         </div>
         <div class="cad-preview-wrap"><canvas id="cadPreview" width="1000" height="680"></canvas><div id="cadPreviewInfo" class="cad-preview-info"></div></div>
       </div>
       <p id="cadWarning" class="hint" role="status"></p>
-      <div class="cad-footer"><label class="chk"><input id="cadClearFixtures" type="checkbox" checked />套用時清除原有燈具，重新配置</label><button id="cadApply" class="primary">套用空間與桌面</button></div>
+      <div class="cad-footer"><label class="chk"><input id="cadClearFixtures" type="checkbox" checked />套用時清除舊有自訂燈具，改用 CAD 燈具</label><button id="cadApply" class="primary">套用空間、桌面與燈具</button></div>
     </div>
   </dialog>
   <!-- 本機離線套件 -->
