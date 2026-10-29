@@ -172,6 +172,162 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
 @media(max-width: 850px) { .cad-layout { grid-template-columns: 1fr; } .cad-options { max-height: 34vh; } #cadPreview { height: 40vh; } }
 .dlg { padding: 16px 18px; }
 
+/* 3D 照度偽彩色 HUD 介面 (DIALux 風格) */
+.hud3d-legend {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: #f8fafc;
+  width: 228px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.65);
+  pointer-events: auto;
+  user-select: none;
+  z-index: 10;
+}
+.hud3d-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #38bdf8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.hud3d-kpis {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  font-size: 11px;
+  background: rgba(11, 20, 32, 0.75);
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.hud3d-kpi {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #94a3b8;
+}
+.hud3d-kpi strong {
+  color: #f1f5f9;
+  font-family: ui-monospace, monospace;
+}
+.hud3d-bar-wrap {
+  display: flex;
+  gap: 12px;
+  height: 160px;
+  margin: 8px 0;
+}
+.hud3d-bar {
+  width: 20px;
+  height: 100%;
+  border-radius: 4px;
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.6);
+  border: 1px solid rgba(255,255,255,0.2);
+}
+.hud3d-ticks {
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #cbd5e1;
+  font-family: ui-monospace, monospace;
+}
+.hud3d-tick {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.hud3d-tick.target {
+  color: #facc15;
+  font-weight: 700;
+}
+.hud3d-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 10px;
+}
+.hud-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  color: #cbd5e1;
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+.hud-btn:hover {
+  background: #334155;
+  color: #fff;
+}
+.hud-btn.on {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 3D 即時點測卡片 */
+.hud3d-probe {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #f8fafc;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+  transition: opacity 0.15s ease;
+  min-width: 170px;
+}
+.probe-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #38bdf8;
+  margin-bottom: 2px;
+}
+.probe-coord {
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: ui-monospace, monospace;
+}
+.probe-lux {
+  font-size: 24px;
+  font-weight: 800;
+  color: #facc15;
+  line-height: 1.1;
+  margin: 4px 0;
+}
+.probe-lux small {
+  font-size: 13px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+.probe-status {
+  font-size: 11px;
+  color: #4ade80;
+  font-weight: 600;
+}
+.probe-status.fail {
+  color: #f87171;
+}
+
 @media (max-width: 1200px) {
   .layout { grid-template-columns: 260px 1fr 290px; }
   .keys { display: none; }

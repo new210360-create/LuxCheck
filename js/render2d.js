@@ -1090,6 +1090,163 @@
   }
   function norm(v) { const l = Math.hypot(v[0], v[1]) || 1; return [v[0] / l, v[1] / l]; }
 
+  /** DIALux 經典彩虹假色彩 (0.0=藍, 0.2=青, 0.4=綠, 0.6=黃, 0.8=橘, 0.95=紅, 1.0=白) */
+  function dialuxColor(t) {
+    t = Math.max(0, Math.min(1, t));
+    const stops = [
+      [0.0,  [10, 20, 140]],
+      [0.18, [0, 180, 240]],
+      [0.36, [20, 215, 60]],
+      [0.55, [250, 230, 10]],
+      [0.72, [255, 125, 0]],
+      [0.88, [235, 25, 25]],
+      [1.0,  [255, 255, 255]]
+    ];
+    for (let i = 0; i < stops.length - 1; i++) {
+      const s1 = stops[i], s2 = stops[i + 1];
+      if (t >= s1[0] && t <= s2[0]) {
+        const f = (t - s1[0]) / (s2[0] - s1[0]);
+        return [
+          Math.round(s1[1][0] + f * (s2[1][0] - s1[1][0])),
+          Math.round(s1[1][1] + f * (s2[1][1] - s1[1][1])),
+          Math.round(s1[1][2] + f * (s2[1][2] - s1[1][2]))
+        ];
+      }
+    }
+    return [255, 255, 255];
+  }
+
+  /** 生成高解析度 3D 照度偽彩色畫布貼圖（支援平滑漸層、等照度線與數值標註） */
+  function buildFalseColorCanvas(result, opts) {
+    if (!result || !result.grid) return null;
+    opts = opts || {};
+    const g = result.grid;
+    const mode = opts.mode || 'target';
+    const target = opts.target || result.primaryTarget || 500;
+    const palette = opts.palette || 'dialux';
+    const showIsolines = opts.isolux !== false;
+    const showValues = opts.values === true;
+    const colormapFn = palette === 'turbo' ? turbo : dialuxColor;
+    const sf = scaleFn(mode, result, target);
+
+    // 1. 低解析原始網格
+    const cLow = document.createElement('canvas');
+    cLow.width = g.nx;
+    cLow.height = g.ny;
+    const ctxLow = cLow.getContext('2d');
+    const imgData = ctxLow.createImageData(g.nx, g.ny);
+    for (let i = 0; i < g.values.length; i++) {
+      if (!g.mask[i]) {
+        imgData.data[i * 4 + 3] = 0;
+        continue;
+      }
+      const [r, gg, b] = colormapFn(sf.t(g.values[i]));
+      imgData.data[i * 4] = r;
+      imgData.data[i * 4 + 1] = gg;
+      imgData.data[i * 4 + 2] = b;
+      imgData.data[i * 4 + 3] = 255;
+    }
+    ctxLow.putImageData(imgData, 0, 0);
+
+    // 2. 升頻至高解析平滑畫布 (1024 - 1536 px)
+    const maxRes = opts.resolution || 1024;
+    const aspect = (g.ny * g.dy) / (g.nx * g.dx || 1);
+    const w = aspect <= 1 ? maxRes : Math.max(256, Math.round(maxRes / aspect));
+    const h = aspect <= 1 ? Math.max(256, Math.round(maxRes * aspect)) : maxRes;
+    const cHigh = document.createElement('canvas');
+    cHigh.width = w;
+    cHigh.height = h;
+    const ctx = cHigh.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(cLow, 0, 0, w, h);
+
+    // 3. 在 3D 貼圖上繪製清晰的等照度線 (Isolux lines)
+    if (showIsolines) {
+      const levels = mode === 'target'
+        ? [target * 0.25, target * 0.5, target * 0.75, target, target * 1.25, target * 1.5, target * 2]
+        : sf.ticks.slice(1);
+
+      ctx.save();
+      for (const L of levels) {
+        const isTarget = Math.abs(L - target) < 1e-4;
+        ctx.strokeStyle = isTarget ? '#ffffff' : 'rgba(255, 255, 255, 0.45)';
+        ctx.lineWidth = isTarget ? 2.8 : 1.2;
+        ctx.beginPath();
+        let labelPt = null;
+
+        for (let j = 0; j < g.ny - 1; j++) {
+          for (let i = 0; i < g.nx - 1; i++) {
+            const k = j * g.nx + i;
+            if (!g.mask[k] || !g.mask[k + 1] || !g.mask[k + g.nx] || !g.mask[k + g.nx + 1]) continue;
+            const a = g.values[k], b = g.values[k + 1], c = g.values[k + g.nx + 1], d = g.values[k + g.nx];
+            const code = (a > L ? 8 : 0) | (b > L ? 4 : 0) | (c > L ? 2 : 0) | (d > L ? 1 : 0);
+            if (code === 0 || code === 15) continue;
+
+            const lerp = (p, q) => (L - p) / (q - p || 1e-9);
+            const x0 = (i + 0.5) / g.nx, y0 = (j + 0.5) / g.ny;
+            const top = [x0 + lerp(a, b) / g.nx, y0];
+            const right = [x0 + 1 / g.nx, y0 + lerp(b, c) / g.ny];
+            const bottom = [x0 + lerp(d, c) / g.nx, y0 + 1 / g.ny];
+            const left = [x0, y0 + lerp(a, d) / g.ny];
+
+            const segs = MS[code];
+            if (!segs) continue;
+            for (const [e1, e2] of segs) {
+              const pts = { t: top, r: right, b: bottom, l: left };
+              const p1 = pts[e1], p2 = pts[e2];
+              ctx.moveTo(p1[0] * w, p1[1] * h);
+              ctx.lineTo(p2[0] * w, p2[1] * h);
+              if (!labelPt && (i + j) % 8 === 4) labelPt = [p1[0] * w, p1[1] * h];
+            }
+          }
+        }
+        ctx.stroke();
+
+        if (labelPt) {
+          ctx.save();
+          const txt = isTarget ? `${Math.round(L)} lx ★` : `${Math.round(L)} lx`;
+          ctx.font = isTarget ? 'bold 14px system-ui, sans-serif' : '11px system-ui, sans-serif';
+          const tm = ctx.measureText(txt);
+          const pw = tm.width + 8, ph = 18;
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+          ctx.fillRect(labelPt[0] - pw / 2, labelPt[1] - ph / 2, pw, ph);
+          ctx.strokeStyle = isTarget ? '#facc15' : 'rgba(255, 255, 255, 0.6)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(labelPt[0] - pw / 2, labelPt[1] - ph / 2, pw, ph);
+          ctx.fillStyle = isTarget ? '#facc15' : '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(txt, labelPt[0], labelPt[1]);
+          ctx.restore();
+        }
+      }
+      ctx.restore();
+    }
+
+    // 4. 若開啟數值顯示，將關鍵點照度打印到貼圖上
+    if (showValues) {
+      ctx.save();
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#0f172a';
+      const stride = Math.max(1, Math.round(Math.max(g.nx, g.ny) / 16));
+      for (let j = Math.floor(stride / 2); j < g.ny; j += stride) {
+        for (let i = Math.floor(stride / 2); i < g.nx; i += stride) {
+          const k = j * g.nx + i;
+          if (!g.mask[k]) continue;
+          const px = ((i + 0.5) / g.nx) * w;
+          const py = ((j + 0.5) / g.ny) * h;
+          ctx.fillText(Math.round(g.values[k]), px, py);
+        }
+      }
+      ctx.restore();
+    }
+
+    return cHigh;
+  }
+
   LX.PlanView = PlanView;
-  LX.render = { turbo, buildHeatCanvas, sampleLux, scaleFn };
+  LX.render = { turbo, dialuxColor, buildHeatCanvas, buildFalseColorCanvas, sampleLux, scaleFn, MS };
 })((window.LX = window.LX || {}));

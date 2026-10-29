@@ -1221,8 +1221,8 @@
         if (k === 'walls') {
           app.requestCompute(false);
           app.v3d.rebuild();
-        } else if (k === 'beams') {
-          app.v3d.rebuild();
+        } else if (k === 'beams' || k === 'heatmap' || k === 'isolux' || k === 'values') {
+          if (app.view.mode === '3d') app.v3d.rebuild();
         }
         app.plan.draw();
       });
