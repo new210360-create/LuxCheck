@@ -75,7 +75,7 @@
     activeType: null,
     activeCat: 'all',
     addRot: 0,
-    view: { heatmap: true, isolux: true, values: false, beams: false, observers: true, osnap: true, ortho: false, spacing: true, walls: true, colorMode: 'target', snap: 0.05, mode: '2d' },
+    view: { heatmap: true, isolux: true, values: false, beams: false, observers: true, osnap: true, ortho: false, spacing: true, walls: true, rcr: true, colorMode: 'target', snap: 0.05, mode: '2d' },
     result: null,
     undoStack: [],
     redoStack: [],
@@ -175,9 +175,13 @@
       const t0 = performance.now();
       const pr = this.project;
       const b = LX.calc.polyBounds(pr.room.polygon);
-      let opts = {};
+      let opts = {
+        zonalRcr: this.view?.rcr !== false,
+        walls: this.view?.walls !== false
+      };
       if (fast) {
-        opts = { spacing: Math.max(0.3, Math.sqrt((b.w * b.h) / 2500)), skipUGR: true };
+        opts.spacing = Math.max(0.3, Math.sqrt((b.w * b.h) / 2500));
+        opts.skipUGR = true;
       }
       const res = LX.calc.compute(pr, opts);
       if (fast && this.result) res.ugr = this.result.ugr;
@@ -1213,12 +1217,12 @@
     // 工具列
     document.querySelectorAll('#toolSeg button').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
     document.querySelectorAll('#viewSeg button').forEach((b) => b.addEventListener('click', () => setViewMode(b.dataset.view)));
-    [['vOsnap', 'osnap'], ['vOrtho', 'ortho'], ['vSpacing', 'spacing'], ['vWalls', 'walls'], ['vHeat', 'heatmap'], ['vIso', 'isolux'], ['vVal', 'values'], ['vBeam', 'beams'], ['vObs', 'observers']].forEach(([id, k]) => {
+    [['vOsnap', 'osnap'], ['vOrtho', 'ortho'], ['vSpacing', 'spacing'], ['vWalls', 'walls'], ['vRcr', 'rcr'], ['vHeat', 'heatmap'], ['vIso', 'isolux'], ['vVal', 'values'], ['vBeam', 'beams'], ['vObs', 'observers']].forEach(([id, k]) => {
       if (!$(id)) return;
       $(id).checked = app.view[k];
       $(id).addEventListener('change', (e) => {
         app.view[k] = e.target.checked;
-        if (k === 'walls') {
+        if (k === 'walls' || k === 'rcr') {
           app.requestCompute(false);
           app.v3d.rebuild();
         } else if (k === 'beams' || k === 'heatmap' || k === 'isolux' || k === 'values') {

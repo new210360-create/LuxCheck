@@ -118,13 +118,44 @@
       if(r.surfaceStats.desk.n)rows.push(['全部桌面',r.surfaceStats.desk,p.target.Em,p.target.U0,'']);
       if(r.surfaceStats.floor.n)rows.push(['地面',r.surfaceStats.floor,p.floorTarget||100,0.4,'']);
       for(const d of r.deskStats||[])rows.push([d.name,d,p.target.Em,p.target.U0,d.id]);
-      $('surfaceResults').innerHTML='<p class="hint">桌面 (0.75m) 與地面 (0m) 連動檢核：同時評估桌面平均照度、均齊度 U₀ 與達標覆蓋率（≥80%）。</p><table class="surface-table"><tr><th>區域</th><th>平均 lx</th><th>最小 lx</th><th>U₀</th><th>覆蓋率</th></tr>'+rows.map(([name,s,target,u0,did])=>{const cov=s.coverage??100;const ok=s.n&&s.Eavg>=target&&s.U0>=u0&&(did===''&&name==='地面'?true:cov>=80);return `<tr class="${ok?'surface-ok':'surface-bad'}" ${did?`data-desk-id="${esc(did)}" style="cursor:pointer" title="點擊選取此辦公桌"`:''}><td>${esc(name)}${!s.n?'（無格點）':''}</td><td>${s.n?s.Eavg.toFixed(0):'—'}</td><td>${s.n?s.Emin.toFixed(0):'—'}</td><td>${s.n?s.U0.toFixed(2):'—'}</td><td>${s.n?Math.round(cov)+'%':'—'}</td></tr>`;}).join('')+'</table>';
+      
+      let html = '';
+      if (r.zones && r.zones.length > 1) {
+        html += `<div style="margin-bottom:12px;padding:8px;background:rgba(2,132,199,0.12);border:1px solid rgba(56,189,248,0.3);border-radius:7px">
+          <div style="font-weight:bold;color:#38bdf8;font-size:12px;display:flex;justify-content:space-between">
+            <span>🏛️ 多房間隔間獨立漫射（分區 RCR 反射）</span>
+            <span style="color:#a5f3fc">${r.zones.length} 個獨立隔間</span>
+          </div>
+          <p class="hint" style="margin:4px 0 6px">系統依實體隔間牆自動切分獨立封閉房間，依各室長寬周長與淨高獨立計算室指數 (RCR)，各空間漫射光不穿牆外溢。</p>
+          <table class="surface-table">
+            <tr><th>隔間分區</th><th>面積 m²</th><th>室指數 RCR</th><th>燈數</th><th>漫射 Eind</th><th>平均 lx</th></tr>
+            ${r.zones.map(z => `<tr><td>${esc(z.name)}</td><td>${z.area}</td><td>${z.rcr}</td><td>${z.fixturesCount}</td><td style="color:#facc15">${z.Eind} lx</td><td><b>${z.EdirAvg + z.Eind}</b></td></tr>`).join('')}
+          </table>
+        </div>`;
+      }
+
+      html += '<p class="hint">桌面 (0.75m) 與地面 (0m) 連動檢核：同時評估桌面平均照度、均齊度 U₀ 與達標覆蓋率（≥80%）。</p><table class="surface-table"><tr><th>區域</th><th>平均 lx</th><th>最小 lx</th><th>U₀</th><th>覆蓋率</th></tr>'+rows.map(([name,s,target,u0,did])=>{const cov=s.coverage??100;const ok=s.n&&s.Eavg>=target&&s.U0>=u0&&(did===''&&name==='地面'?true:cov>=80);return `<tr class="${ok?'surface-ok':'surface-bad'}" ${did?`data-desk-id="${esc(did)}" style="cursor:pointer" title="點擊選取此辦公桌"`:''}><td>${esc(name)}${!s.n?'（無格點）':''}</td><td>${s.n?s.Eavg.toFixed(0):'—'}</td><td>${s.n?s.Emin.toFixed(0):'—'}</td><td>${s.n?s.U0.toFixed(2):'—'}</td><td>${s.n?Math.round(cov)+'%':'—'}</td></tr>`;}).join('')+'</table>';
+      $('surfaceResults').innerHTML = html;
       $('surfaceResults').querySelectorAll('tr[data-desk-id]').forEach(tr=>{
         tr.onclick=()=>{app.selectedDeskId=tr.dataset.deskId;app.selection.clear();app.onSelectionChanged();};
       });
     } else if (app.result) {
       const r=app.result;
-      $('surfaceResults').innerHTML=`<p class="hint">目前為整室均勻工作面（高度 ${p.room.wp} m）：達標覆蓋率 <b>${Math.round(r.coverage??100)}%</b>（有效光束覆蓋 ${Math.round(r.beamCoverage??100)}%）。<br>👉 可於左側「辦公桌面配置與套用」點選 <b>➕ 點擊增設辦公桌</b> 或 <b>批次排入辦公桌</b>，立即啟用桌面 0.75m 與地面 0m 分區連動評估。</p>`;
+      let html = '';
+      if (r.zones && r.zones.length > 1) {
+        html += `<div style="margin-bottom:12px;padding:8px;background:rgba(2,132,199,0.12);border:1px solid rgba(56,189,248,0.3);border-radius:7px">
+          <div style="font-weight:bold;color:#38bdf8;font-size:12px;display:flex;justify-content:space-between">
+            <span>🏛️ 多房間隔間獨立漫射（分區 RCR 反射）</span>
+            <span style="color:#a5f3fc">${r.zones.length} 個獨立隔間</span>
+          </div>
+          <table class="surface-table">
+            <tr><th>隔間分區</th><th>面積 m²</th><th>室指數 RCR</th><th>燈數</th><th>漫射 Eind</th><th>平均 lx</th></tr>
+            ${r.zones.map(z => `<tr><td>${esc(z.name)}</td><td>${z.area}</td><td>${z.rcr}</td><td>${z.fixturesCount}</td><td style="color:#facc15">${z.Eind} lx</td><td><b>${z.EdirAvg + z.Eind}</b></td></tr>`).join('')}
+          </table>
+        </div>`;
+      }
+      html += `<p class="hint">目前為整室均勻工作面（高度 ${p.room.wp} m）：達標覆蓋率 <b>${Math.round(r.coverage??100)}%</b>（有效光束覆蓋 ${Math.round(r.beamCoverage??100)}%）。<br>👉 可於左側「辦公桌面配置與套用」點選 <b>➕ 點擊增設辦公桌</b> 或 <b>批次排入辦公桌</b>，立即啟用桌面 0.75m 與地面 0m 分區連動評估。</p>`;
+      $('surfaceResults').innerHTML = html;
     }
   }
   function install() {

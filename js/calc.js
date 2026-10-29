@@ -198,7 +198,7 @@
     const margin = room.margin || 0;
     const zw = room.wp;
     const sources = buildSources(project);
-    const walls = (project.calcWalls !== false && project.view?.walls !== false)
+    const walls = (project.calcWalls !== false && opts.walls !== false && project.view?.walls !== false)
       ? (LX.cad && LX.cad.allWalls ? LX.cad.allWalls(project) : (project.cad?.walls || project.walls || []))
       : [];
 
@@ -243,28 +243,200 @@
       }
     }
 
-    // 間接光（積分球近似）
-    const area = polyArea(poly);
-    const perim = polyPerimeter(poly);
+    // =========================================================================
+    // 間接光（多房間隔間獨立漫射 Zonal RCR / 全區單室積分球）
+    // =========================================================================
     const cell = dx * dy;
-    let fluxWP = 0;
-    for (let i = 0; i < values.length; i++) if (mask[i]) fluxWP += (floorDirect ? floorDirect[i] : values[i]) * cell;
-    let fluxDown = 0, fluxUp = 0;
-    for (const s of sources) {
-      const total = s.k * 1000;
-      const dr = s.tilted ? Math.min(1, s.tbl.downRatio) : s.tbl.downRatio;
-      fluxDown += total * dr;
-      fluxUp += total * (1 - dr);
-    }
-    const Ac = area, Af = area, Aw = perim * Math.max(0.1, room.height - zw);
-    const Atot = Ac + Af + Aw;
-    const rhoAvg = (Ac * room.rhoC + Aw * room.rhoW + Af * room.rhoF) / Atot;
-    const fluxWall = Math.max(0, fluxDown - fluxWP);
-    const first = room.rhoF * Math.min(fluxWP, fluxDown) + room.rhoW * fluxWall + room.rhoC * fluxUp;
-    const Eind = sources.length ? first / (Atot * (1 - rhoAvg)) : 0;
+    const Hcav = Math.max(0.1, room.height - zw);
+    const useZonalRcr = walls.length > 0 && opts.zonalRcr !== false;
+    let zonesResult = [];
+    let EindGlobal = 0;
     let Edsum = 0, nIn = 0;
-    for (let i = 0; i < values.length; i++) {
-      if (mask[i]) { Edsum += values[i]; nIn++; values[i] += Eind; }
+
+    if (useZonalRcr) {
+      // 1. 利用 BFS 依照隔間牆切分實體獨立房間分區 (Zonal Connected Components)
+      const zoneMap = new Int32Array(nx * ny).fill(-1);
+      let nextZone = 0;
+      for (let j = 0; j < ny; j++) {
+        for (let i = 0; i < nx; i++) {
+          const idx = j * nx + i;
+          if (!mask[idx] || zoneMap[idx] !== -1) continue;
+          const zId = nextZone++;
+          const q = [idx];
+          zoneMap[idx] = zId;
+          while (q.length) {
+            const cur = q.pop();
+            const ci = cur % nx, cj = Math.floor(cur / nx);
+            const cx = b.minX + (ci + 0.5) * dx, cy = b.minY + (cj + 0.5) * dy;
+            const nbrs = [
+              [ci + 1, cj], [ci - 1, cj], [ci, cj + 1], [ci, cj - 1]
+            ];
+            for (const [ni, nj] of nbrs) {
+              if (ni < 0 || ni >= nx || nj < 0 || nj >= ny) continue;
+              const nidx = nj * nx + ni;
+              if (!mask[nidx] || zoneMap[nidx] !== -1) continue;
+              const ncx = b.minX + (ni + 0.5) * dx, ncy = b.minY + (nj + 0.5) * dy;
+              if (isBlockedByWall(cx, cy, 0, ncx, ncy, 0, walls)) continue;
+              zoneMap[nidx] = zId;
+              q.push(nidx);
+            }
+          }
+        }
+      }
+
+      // 2. 統計各房間幾何指標、RCR 室指數與光源歸屬
+      const zoneStats = [];
+      for (let z = 0; z < nextZone; z++) {
+        zoneStats.push({
+          id: z,
+          cellCount: 0,
+          boundaryEdges: 0,
+          fluxWP: 0,
+          sources: [],
+          directSum: 0,
+          Eind: 0
+        });
+      }
+
+      // 累計各格點直射通量與邊界周長
+      for (let j = 0; j < ny; j++) {
+        for (let i = 0; i < nx; i++) {
+          const idx = j * nx + i;
+          const zId = zoneMap[idx];
+          if (zId === -1) continue;
+          const zs = zoneStats[zId];
+          zs.cellCount++;
+          const dVal = floorDirect ? floorDirect[idx] : values[idx];
+          zs.fluxWP += dVal * cell;
+          zs.directSum += values[idx];
+
+          const cx = b.minX + (i + 0.5) * dx, cy = b.minY + (j + 0.5) * dy;
+          const nbrs = [[i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]];
+          for (const [ni, nj] of nbrs) {
+            if (ni < 0 || ni >= nx || nj < 0 || nj >= ny || !mask[nj * nx + ni] || zoneMap[nj * nx + ni] !== zId) {
+              zs.boundaryEdges++;
+            } else {
+              const ncx = b.minX + (ni + 0.5) * dx, ncy = b.minY + (nj + 0.5) * dy;
+              if (isBlockedByWall(cx, cy, 0, ncx, ncy, 0, walls)) zs.boundaryEdges++;
+            }
+          }
+        }
+      }
+
+      // 判斷燈具光源落入哪一個房間分區
+      for (const s of sources) {
+        const si = Math.floor((s.x - b.minX) / dx);
+        const sj = Math.floor((s.y - b.minY) / dy);
+        let sZone = -1;
+        if (si >= 0 && si < nx && sj >= 0 && sj < ny) {
+          sZone = zoneMap[sj * nx + si];
+        }
+        if (sZone === -1) {
+          let minDist = Infinity;
+          for (let j = Math.max(0, sj - 3); j <= Math.min(ny - 1, sj + 3); j++) {
+            for (let i = Math.max(0, si - 3); i <= Math.min(nx - 1, si + 3); i++) {
+              const z = zoneMap[j * nx + i];
+              if (z === -1) continue;
+              const cx = b.minX + (i + 0.5) * dx, cy = b.minY + (j + 0.5) * dy;
+              const dist = Math.hypot(cx - s.x, cy - s.y);
+              if (dist < minDist && !isBlockedByWall(s.x, s.y, s.z, cx, cy, 0, walls)) {
+                minDist = dist;
+                sZone = z;
+              }
+            }
+          }
+        }
+        if (sZone !== -1 && zoneStats[sZone]) {
+          zoneStats[sZone].sources.push(s);
+        }
+      }
+
+      // 3. 計算各房間獨立的 RCR 與反射 Eind
+      let totalFirstFlux = 0, totalAreaAll = 0;
+      for (const zs of zoneStats) {
+        if (!zs.cellCount) continue;
+        const zArea = zs.cellCount * cell;
+        const zPerim = zs.boundaryEdges * ((dx + dy) / 2);
+        // Room Cavity Ratio (RCR) = 2.5 * Perimeter * Hcav / Area
+        const rcr = zArea > 0 ? (2.5 * zPerim * Hcav) / zArea : 1;
+        const zAw = zPerim * Hcav;
+        const zAtot = 2 * zArea + zAw;
+        const zRhoAvg = (zArea * room.rhoC + zAw * room.rhoW + zArea * room.rhoF) / (zAtot || 1);
+
+        let zFluxDown = 0, zFluxUp = 0;
+        for (const s of zs.sources) {
+          const total = s.k * 1000;
+          const dr = s.tilted ? Math.min(1, s.tbl.downRatio) : s.tbl.downRatio;
+          zFluxDown += total * dr;
+          zFluxUp += total * (1 - dr);
+        }
+
+        const zFluxWall = Math.max(0, zFluxDown - zs.fluxWP);
+        const zFirst = room.rhoF * Math.min(zs.fluxWP, zFluxDown) + room.rhoW * zFluxWall + room.rhoC * zFluxUp;
+        totalFirstFlux += zFirst;
+        totalAreaAll += zArea;
+
+        // 若該房間有光源或直射光通量，計算該房間獨立反射漫射；若全無燈光且無直射，漫射為 0
+        zs.Eind = (zs.sources.length || zs.fluxWP > 1)
+          ? zFirst / (zAtot * Math.max(0.1, 1 - zRhoAvg))
+          : 0;
+
+        zs.area = zArea;
+        zs.perimeter = zPerim;
+        zs.rcr = rcr;
+        zs.fixturesCount = zs.sources.length;
+      }
+
+      // 4. 將各房間獨立 Eind 疊加至該分區格點
+      for (let i = 0; i < values.length; i++) {
+        if (!mask[i]) continue;
+        const zId = zoneMap[i];
+        const eind = (zId !== -1 && zoneStats[zId]) ? zoneStats[zId].Eind : 0;
+        Edsum += values[i];
+        nIn++;
+        values[i] += eind;
+      }
+
+      // 整理過濾出有效房間分區清單（依面積排序）
+      zonesResult = zoneStats
+        .filter(z => z.cellCount >= 4 && z.area >= 1.0)
+        .sort((a, b) => b.area - a.area)
+        .map((z, idx) => ({
+          id: `zone-${idx + 1}`,
+          name: `隔間分區 ${idx + 1}`,
+          area: +(z.area).toFixed(1),
+          perimeter: +(z.perimeter).toFixed(1),
+          rcr: +(z.rcr).toFixed(2),
+          fixturesCount: z.fixturesCount,
+          Eind: Math.round(z.Eind),
+          EdirAvg: Math.round(z.directSum / (z.cellCount || 1))
+        }));
+
+      EindGlobal = totalAreaAll > 0 ? (zoneStats.reduce((acc, z) => acc + z.Eind * (z.area || 0), 0) / totalAreaAll) : 0;
+
+    } else {
+      // 傳統全區單一漫射模式
+      const area = polyArea(poly);
+      const perim = polyPerimeter(poly);
+      let fluxWP = 0;
+      for (let i = 0; i < values.length; i++) if (mask[i]) fluxWP += (floorDirect ? floorDirect[i] : values[i]) * cell;
+      let fluxDown = 0, fluxUp = 0;
+      for (const s of sources) {
+        const total = s.k * 1000;
+        const dr = s.tilted ? Math.min(1, s.tbl.downRatio) : s.tbl.downRatio;
+        fluxDown += total * dr;
+        fluxUp += total * (1 - dr);
+      }
+      const Ac = area, Af = area, Aw = perim * Hcav;
+      const Atot = Ac + Af + Aw;
+      const rhoAvg = (Ac * room.rhoC + Aw * room.rhoW + Af * room.rhoF) / Atot;
+      const fluxWall = Math.max(0, fluxDown - fluxWP);
+      const first = room.rhoF * Math.min(fluxWP, fluxDown) + room.rhoW * fluxWall + room.rhoC * fluxUp;
+      const Eind = sources.length ? first / (Atot * (1 - rhoAvg)) : 0;
+      EindGlobal = Eind;
+      for (let i = 0; i < values.length; i++) {
+        if (mask[i]) { Edsum += values[i]; nIn++; values[i] += Eind; }
+      }
     }
 
     // 統計（計算區）
@@ -333,7 +505,7 @@
     let gridMax = 0; for (let i = 0; i < values.length; i++) if (mask[i]) gridMax = Math.max(gridMax, values[i]);
     const totalW = project.fixtures.reduce((a, f) => a + (f.on === false ? 0 : f.watts * (f.dim == null ? 1 : f.dim / 100)), 0);
     const totalLm = project.fixtures.reduce((a, f) => a + (f.on === false ? 0 : f.lumens * (f.dim == null ? 1 : f.dim / 100)), 0);
-    const ugr = opts.skipUGR ? null : computeUGR(project, sources, Eind, b);
+    const ugr = opts.skipUGR ? null : computeUGR(project, sources, EindGlobal, b);
 
     return {
       grid: { nx, ny, dx, dy, x0: b.minX, y0: b.minY, values, mask, heights, surfaceKinds },
@@ -345,12 +517,15 @@
       U0: Eavg > 0 ? mn / Eavg : 0,
       Ud: mx > 0 ? mn / mx : 0,
       coverage, beamCoverage,
-      Edirect: zoneMode ? Math.max(0, Eavg - Eind) : (nIn ? Edsum / nIn : 0),
-      Eind,
-      area, perim,
+      Edirect: zoneMode ? Math.max(0, Eavg - EindGlobal) : (nIn ? Edsum / nIn : 0),
+      Eind: EindGlobal,
+      zones: zonesResult,
+      zonalRcr: useZonalRcr,
+      area: room.polygon ? polyArea(room.polygon) : b.w * b.h,
+      perim: room.polygon ? polyPerimeter(room.polygon) : 2 * (b.w + b.h),
       totalW, totalLm,
-      lpd: area > 0 ? totalW / area : 0,
-      lpd100: Eavg > 0 && area > 0 ? (totalW / area) / (Eavg / 100) : 0,
+      lpd: (b.w * b.h) > 0 ? totalW / (b.w * b.h) : 0,
+      lpd100: Eavg > 0 && (b.w * b.h) > 0 ? (totalW / (b.w * b.h)) / (Eavg / 100) : 0,
       count: project.fixtures.filter((f) => f.on !== false).length,
       ugr,
       sources: sources.length,
