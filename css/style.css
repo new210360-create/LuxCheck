@@ -350,18 +350,69 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
   .keys { display: none; }
 }
 
-.workflow {display:flex;gap:4px;align-items:center;height:38px;padding:0 12px;background:#101e2a;border-bottom:1px solid var(--line);overflow-x:auto}
-.workflow a {color:#c5daea;text-decoration:none;padding:5px 10px;border-radius:4px;white-space:nowrap}
-.workflow a:hover,.workflow a:focus-visible {background:#234059;color:white}
-.layout {height:calc(100% - 86px)}
-.layout section:target {box-shadow:inset 3px 0 var(--accent)}
-.project-menu {position:relative}
-.project-menu summary {cursor:pointer;padding:5px 10px;border:1px solid var(--line);border-radius:6px}
-.project-menu>div {position:absolute;z-index:30;top:100%;left:0;display:grid;gap:5px;padding:8px;background:var(--panel);border:1px solid var(--line)}
+.layout { height: calc(100% - 48px); }
+.layout section:target { box-shadow: inset 3px 0 var(--accent); }
+.project-menu { position: relative; }
+.project-menu summary { cursor: pointer; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px; list-style: none; }
+.project-menu > div { position: absolute; z-index: 30; top: 100%; left: 0; display: grid; gap: 5px; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-width: 160px; box-shadow: 0 10px 24px rgba(0,0,0,0.5); }
+
+/* 極簡手風琴折疊卡與精簡工具列下拉 */
+.acc { border-bottom: 1px solid var(--line); }
+.acc > summary {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  list-style: none;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+.acc > summary::-webkit-details-marker { display: none; }
+.acc > summary::after { content: '▸'; color: #64748b; font-size: 11px; transition: transform 0.15s ease; }
+.acc[open] > summary::after { transform: rotate(90deg); color: #38bdf8; }
+.acc > summary:hover { background: rgba(56, 189, 248, 0.08); }
+.acc > summary small { color: #94a3b8; font-weight: 400; margin-left: auto; margin-right: 8px; }
+.acc-body { padding: 4px 12px 12px; }
+
+.tool-more { position: relative; }
+.tool-more > summary {
+  cursor: pointer;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #16202e;
+  color: #cbd5e1;
+  font-size: 12px;
+  list-style: none;
+  user-select: none;
+}
+.tool-more > summary::-webkit-details-marker { display: none; }
+.tool-more[open] > summary { background: #0c4a6e; border-color: #38bdf8; color: #fff; }
+.tool-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 210px;
+  display: grid;
+  gap: 7px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.65);
+}
+.tool-pop-sep { height: 1px; background: var(--line); margin: 2px 0; }
+.tool-pop select { width: 100%; }
+
 @media(max-width:1050px){
  .topbar {height:auto;flex-wrap:wrap;padding:8px;gap:6px}
  .actions {margin:0;flex-wrap:wrap}
- .workflow {position:sticky;top:0;z-index:9}
  .layout {display:flex;flex-direction:column;height:auto}
  .center {order:-1;height:74vh;min-height:440px}
  .panel {overflow:visible}
