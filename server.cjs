@@ -7,6 +7,7 @@ const server = http.createServer((req,res) => {
   let url;
   try {url = decodeURIComponent(new URL(req.url,'http://localhost').pathname);} catch {res.writeHead(400); return res.end();}
   if(req.method==='POST'&&url==='/api/cad/convert')return require('./cad-convert.cjs').convert(req,res);
+  if(req.method==='POST'&&url==='/api/plan/pdf')return require('./pdf-plan.cjs').extract(req,res);
   if (!['GET','HEAD'].includes(req.method)) {res.writeHead(405); return res.end();}
   if(url === '/health') {res.writeHead(200,{'Content-Type':'application/json'}); return res.end(JSON.stringify({app:'LuxCheck',port,pid:process.pid}));}
   const relative = url === '/' ? 'index.html' : url.slice(1);

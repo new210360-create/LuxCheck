@@ -171,6 +171,23 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
 #surfaceResults { max-height: 300px; overflow: auto; }
 @media(max-width: 850px) { .cad-layout { grid-template-columns: 1fr; } .cad-options { max-height: 34vh; } #cadPreview { height: 40vh; } }
 .dlg { padding: 16px 18px; }
+.pdf-plan-dialog { width: min(1550px, 97vw); max-width: 97vw; max-height: 96vh; overflow: auto; }
+.pdf-plan-layout { display: grid; grid-template-columns: 325px minmax(0,1fr); gap: 16px; margin-top: 12px; }
+.pdf-plan-options { max-height: 65vh; overflow: auto; padding-right: 9px; }
+.pdf-plan-options h3 { margin: 14px 0 8px; }
+.pdf-plan-preview-area { min-width: 0; background: #0b1420; border: 1px solid #334155; border-radius: 9px; overflow: hidden; }
+.pdf-plan-tools { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px; border-bottom: 1px solid #334155; }
+.pdf-plan-tools button { font-size: 11px; padding: 4px 7px; }
+.pdf-plan-tools button.on { color: #e0f2fe; background: #075985; border-color: #38bdf8; }
+#pdfPlanPreview { display: block; width: 100%; height: min(53vh, 620px); cursor: crosshair; }
+.pdf-plan-preview-area > .hint { padding: 0 12px; }
+.pdf-plan-counts { color: #a5f3fc; font-size: 11px; line-height: 1.7; padding: 6px 0; }
+.pdf-plan-object-list { max-height: 160px; overflow: auto; border: 1px solid #334155; border-radius: 6px; }
+.pdf-plan-object-list button { display: block; text-align: left; border: none; border-radius: 0; width: 100%; border-bottom: 1px solid #253449; font-size: 11px; }
+.pdf-plan-object-list button.on { background: #075985; }
+#pdfPlanKnown { width: 145px; }
+#pdfPlanSelected { border-left: 3px solid #38bdf8; padding: 6px 9px; margin-top: 8px; background: #142234; }
+@media(max-width: 900px) { .pdf-plan-layout { grid-template-columns: 1fr; } .pdf-plan-options { max-height: 32vh; } #pdfPlanPreview { height: 40vh; } }
 
 /* 3D 照度偽彩色 HUD 介面 (DIALux 風格) */
 .hud3d-legend {
@@ -331,4 +348,23 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
 @media (max-width: 1200px) {
   .layout { grid-template-columns: 260px 1fr 290px; }
   .keys { display: none; }
+}
+
+.workflow {display:flex;gap:4px;align-items:center;height:38px;padding:0 12px;background:#101e2a;border-bottom:1px solid var(--line);overflow-x:auto}
+.workflow a {color:#c5daea;text-decoration:none;padding:5px 10px;border-radius:4px;white-space:nowrap}
+.workflow a:hover,.workflow a:focus-visible {background:#234059;color:white}
+.layout {height:calc(100% - 86px)}
+.layout section:target {box-shadow:inset 3px 0 var(--accent)}
+.project-menu {position:relative}
+.project-menu summary {cursor:pointer;padding:5px 10px;border:1px solid var(--line);border-radius:6px}
+.project-menu>div {position:absolute;z-index:30;top:100%;left:0;display:grid;gap:5px;padding:8px;background:var(--panel);border:1px solid var(--line)}
+@media(max-width:1050px){
+ .topbar {height:auto;flex-wrap:wrap;padding:8px;gap:6px}
+ .actions {margin:0;flex-wrap:wrap}
+ .workflow {position:sticky;top:0;z-index:9}
+ .layout {display:flex;flex-direction:column;height:auto}
+ .center {order:-1;height:74vh;min-height:440px}
+ .panel {overflow:visible}
+ .layout section,.center {scroll-margin-top:40px}
+ .toolbar {flex-wrap:wrap;overflow:auto}
 }

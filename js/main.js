@@ -82,7 +82,7 @@
 
     async init() {
       let loaded = await LX.storage.read();
-      if (!loaded || !loaded.room || !loaded.fixtures || !loaded.fixtures.length || loaded.name === '開放式辦公室（範例）') {
+      if (!loaded || !loaded.room || !loaded.fixtures || (!loaded.pdfPlan && (!loaded.fixtures.length || loaded.name === '開放式辦公室（範例）'))) {
         try {
           const res = await fetch('samples/keelung-project.json');
           if (res.ok) loaded = await res.json();
@@ -107,14 +107,14 @@
       return JSON.stringify({
         name: p.name, room: p.room, standardId: p.standardId, target: p.target, lpdLimit: p.lpdLimit,
         fixtures: p.fixtures, library: p.library, cad: p.cad || null, desks: p.desks || [], dims: p.dims || [],
-        floorTarget: p.floorTarget || 100
+        floorTarget: p.floorTarget || 100, pdfPlan:p.pdfPlan||null, walls:p.walls||[], calcWalls:p.calcWalls!==false
       });
     },
     commit() {
       const s = this.snapshot();
       if (this.undoStack[this.undoStack.length - 1] === s) return;
       this.undoStack.push(s);
-      if (this.undoStack.length > (this.project.cad ? 15 : 100)) this.undoStack.shift();
+      if (this.undoStack.length > (this.project.cad || this.project.pdfPlan ? 15 : 100)) this.undoStack.shift();
       this.redoStack = [];
       this.autosave();
     },
@@ -421,7 +421,7 @@
       $('stPos').textContent = `x ${x.toFixed(2)} m, y ${y.toFixed(2)} m`;
       const s = LX.cad.surfaceAt(this.project, x, y);
       const zoneMode = LX.cad.hasZoneMode ? LX.cad.hasZoneMode(this.project) : !!this.project.cad;
-      if (zoneMode && this.result) lux = LX.calc.pointInPoly(x, y, this.project.room.polygon) ? LX.calc.directAt(this.result.lightSources, x, y, s.height) + this.result.Eind : null;
+      if (zoneMode && this.result) lux = LX.calc.pointInPoly(x, y, this.project.room.polygon) ? LX.calc.pointAt(this.result, x, y, s.height) : null;
       $('stLux').textContent = (lux == null ? '— lx' : `${Math.round(lux)} lx`) + ` · ${s.kind === 'desk' ? (s.desk?.name || '桌面') : s.kind === 'floor' ? '地面' : '工作面'} ${s.height.toFixed(2)} m`;
     },
   };
@@ -432,10 +432,10 @@
     const r = app.project.room;
     $('projName').value = app.project.name;
     $('roomShape').value = r.shape;
-    $('roomL').value = r.L; $('roomW').value = r.W;
-    $('cutL').value = r.cutL; $('cutW').value = r.cutW;
-    $('roomH').value = r.height; $('roomWp').value = r.wp;
-    $('roomMargin').value = r.margin; $('roomMf').value = r.mf;
+    $('roomL').value = r.L ?? ''; $('roomW').value = r.W ?? '';
+    $('cutL').value = r.cutL ?? ''; $('cutW').value = r.cutW ?? '';
+    $('roomH').value = r.height ?? ''; $('roomWp').value = r.wp ?? 0;
+    $('roomMargin').value = r.margin ?? 0; $('roomMf').value = r.mf ?? 0.8;
     $('polyText').value = r.polygon.map((p) => p.join(', ')).join('\n');
     ['rhoC', 'rhoW', 'rhoF'].forEach((k) => { $(k).value = r[k]; $(k + 'v').textContent = Math.round(r[k] * 100) + '%'; });
     $('gridSel').value = String(r.grid || 0);
@@ -492,8 +492,8 @@
   function evaluate(res) {
     const p = app.project, t = p.target;
     const allDesks = app.allDesks();
-    const zoneMode = Boolean(p.cad || allDesks.length);
-    const types = new Set(p.fixtures.map((f) => f.typeId));
+    const zoneMode = LX.cad.hasZoneMode(p);
+    const types = new Set(p.fixtures.filter(f => f.on !== false).map(f => f.typeId));
     const minRa = Math.min(...[...types].map((id) => (app.typeById(id) || {}).cri || 0));
     const ugr = res.ugr ? res.ugr.value : null;
     const cov = res.coverage ?? 100;
@@ -514,7 +514,7 @@
     const p = app.project, t = p.target;
     if (!res) return;
     const allDesks = app.allDesks();
-    const zoneMode = Boolean(p.cad || allDesks.length);
+    const zoneMode = LX.cad.hasZoneMode(p);
     if ($('deskCountBadge')) $('deskCountBadge').textContent = `${allDesks.length} 張${allDesks.length ? ' (0.75 m)' : ''}`;
     const ev = evaluate(res);
     const ugr = res.ugr ? res.ugr.value : null;
@@ -524,12 +524,20 @@
     const covTitle = allDesks.length ? '桌面達標覆蓋率' : '達標覆蓋率';
     $('kpis').innerHTML = [
       k(emTitle, fmt(res.Eavg), 'lx', `目標 ≥ ${res.primaryTarget} lx`, cls(ev.Em.ok, ev.Em.warn)),
-      k(covTitle, fmt(res.coverage, 0), '%', `目標 ≥ 80% (光束覆蓋 ${fmt(res.beamCoverage, 0)}%)`, cls(ev.Cov.ok, ev.Cov.warn)),
+      k(covTitle, fmt(res.coverage, 0), '%', `目標 ≥ 80% (達目標80%面積比 ${fmt(res.beamCoverage, 0)}%)`, cls(ev.Cov.ok, ev.Cov.warn)),
       k('均齊度 U₀', fmt(res.U0, 2), '', `目標 ≥ ${res.primaryU0}　(Emin ${fmt(res.Emin)} lx)`, cls(ev.U0.ok, ev.U0.warn)),
       k('統一眩光 UGR', ugr == null ? '—' : fmt(ugr, 1), '', `上限 ≤ ${t.UGR}（估算）`, ugr == null ? '' : cls(ev.UGR.ok, ev.UGR.warn)),
       k('演色性 Ra', ev.Ra.v == null ? '—' : ev.Ra.v, '', `目標 ≥ ${t.Ra}`, ev.Ra.v == null ? '' : cls(ev.Ra.ok, false)),
       k('功率密度 LPD', fmt(res.lpd, 2), 'W/m²', `上限 ≤ ${p.lpdLimit}　(${fmt(res.lpd100, 2)} W/m²/100lx)`, cls(ev.LPD.ok, ev.LPD.warn)),
       k('燈具 / 總功率', `${res.count} 盞 · ${fmt(res.totalW)}`, 'W', `總光通量 ${fmt(res.totalLm / 1000, 1)} klm · 面積 ${fmt(res.area, 1)} m²`, '', true),
+      (() => {
+        const kwhYr = (res.totalW / 1000) * 2500;
+        const costYr = kwhYr * 4.0;
+        const t8W = res.totalLm / 65;
+        const savePct = t8W > 0 ? Math.max(0, (1 - res.totalW / t8W) * 100) : 0;
+        const saveCost = Math.max(0, ((t8W - res.totalW) / 1000) * 2500 * 4.0);
+        return k('年耗電 / 電費估算', `${fmt(kwhYr, 0)} 度 · NT$ ${fmt(costYr, 0)}`, '/年', `10h×250日·$4/度 ｜ 較傳統T8省 ${fmt(savePct, 0)}%（年省 NT$${fmt(saveCost, 0)}）`, savePct >= 30 ? 'ok' : '', true);
+      })(),
       k('直接 / 間接', `${fmt(res.Edirect)} / ${fmt(res.Eind)}`, 'lx', `最大 ${fmt(res.Emax)} lx · MF ${p.room.mf} · 反射 ${Math.round(p.room.rhoC * 100)}/${Math.round(p.room.rhoW * 100)}/${Math.round(p.room.rhoF * 100)}`, '', true),
     ].join('');
     const allOk = ev.Em.ok && ev.Cov.ok && ev.U0.ok && ev.UGR.ok && ev.Ra.ok && ev.LPD.ok && ev.Floor.ok && ev.Desks.ok;
@@ -1078,7 +1086,7 @@
       p.standardId = s.id;
       if (s.id !== 'custom') {
         p.target = { Em: s.Em, UGR: s.UGR, U0: s.U0, Ra: s.Ra };
-        p.room.wp = p.cad?0:s.wp;
+        p.room.wp = p.cad||p.pdfPlan?0:s.wp;
       }
       fillStdUI(); fillRoomUI();
       app.commit();
@@ -1441,7 +1449,7 @@
     // 鍵盤
     window.addEventListener('keydown', (e) => {
       const tag = (e.target.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select' || $('typeDlg').open || $('cadDlg').open) return;
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || document.querySelector('dialog[open]')) return;
       const ctrl = e.ctrlKey || e.metaKey;
       const step = e.shiftKey ? 0.5 : 0.1;
       if (e.key === 'F8') {

@@ -229,7 +229,7 @@
         if (hits.length) {
           const hit = hits[0];
           const wx = hit.point.x, wy = hit.point.z, wz = hit.point.y;
-          const lux = LX.render.sampleLux(this.app.result, wx, wy) || 0;
+          const lux = LX.calc.pointAt(this.app.result, wx, wy, hit.object.userData?.desk ? 0.75 : (this.app.result.zoneMode ? 0 : this.app.project.room.wp)) || 0;
           const deskName = hit.object.userData?.desk?.name;
           this.addPin(wx, wy, wz, lux, deskName);
         }
@@ -251,18 +251,19 @@
         this.probeMarker.visible = true;
 
         const res = this.app.result;
-        const lux = LX.render.sampleLux(res, wx, wy) || 0;
-        const target = res.primaryTarget || 500;
         const isDesk = !!hit.object.userData?.desk;
+        const zCalc = isDesk ? 0.75 : (res.zoneMode ? 0 : this.app.project.room.wp);
+        const lux = LX.calc.pointAt(res, wx, wy, zCalc) || 0;
+        const target = isDesk ? this.app.project.target.Em : (res.zoneMode ? (this.app.project.floorTarget || 100) : res.primaryTarget);
         const desk = hit.object.userData?.desk;
 
         if (probe) {
           probe.classList.remove('hidden');
-          pCoord.textContent = `X: ${wx.toFixed(2)}m, Y: ${wy.toFixed(2)}m (高 ${wz.toFixed(2)}m)`;
+          pCoord.textContent = `X: ${wx.toFixed(2)}m, Y: ${wy.toFixed(2)}m (計算高 ${zCalc.toFixed(2)}m)`;
           pLux.textContent = Math.round(lux);
           const ratio = Math.round((lux / target) * 100);
           if (isDesk) {
-            const ok = lux >= target * 0.95;
+            const ok = lux >= target;
             pStatus.className = `probe-status ${ok ? '' : 'fail'}`;
             pStatus.textContent = `${desk.name} · ${ok ? '達標 ✓' : '不足 ✗'} (${ratio}% 標準 ${target} lx)`;
           } else {
@@ -382,7 +383,7 @@
       while (g.children.length) {
         const c = g.children.pop();
         if (c.geometry) c.geometry.dispose();
-        if (c.material) {
+        if (c.material && c.material !== this._sharedLegMat) {
           if (c.material.map) c.material.map.dispose();
           c.material.dispose();
         }
@@ -460,7 +461,7 @@
 
       if (zoneMode) {
         for (const desk of allDesks) {
-          const dh = desk.height ?? 0.75;
+          const dh = 0.75;
           const ds = new T.Shape();
           desk.polygon.forEach(([x, y], i) => (i ? ds.lineTo(x, y) : ds.moveTo(x, y)));
           ds.closePath();
@@ -491,7 +492,7 @@
 
           // 桌面達標外框光圈 (綠色合格，琥珀色未達標)
           const st = deskStatMap.get(desk.id);
-          const ok = st ? (st.Eavg >= targetLux * 0.95 && st.coverage >= 80) : true;
+          const ok = st ? (st.Eavg >= targetLux && st.coverage >= 80) : true;
           const rimColor = this.falseColor ? (ok ? 0x10b981 : 0xf59e0b) : 0x0284c7;
           const rim = new T.LineLoop(
             new T.BufferGeometry().setFromPoints(desk.polygon.map(([x, y]) => new T.Vector3(x, dh + 0.004, y))),
@@ -499,10 +500,12 @@
           );
           g.add(rim);
 
-          // 桌腳
+          // 桌腳（共用幾何與材質減少 Draw Calls）
+          if (!this._sharedLegMat) this._sharedLegMat = new T.MeshStandardMaterial({ color: 0x334155, metalness: 0.6 });
+          const legGeo = new T.CylinderGeometry(0.02, 0.02, dh - 0.02, 8);
           const center = desk.polygon.reduce((s, p) => [s[0] + p[0] / desk.polygon.length, s[1] + p[1] / desk.polygon.length], [0, 0]);
           for (const [x, y] of desk.polygon.slice(0, 4)) {
-            const leg = new T.Mesh(new T.CylinderGeometry(0.02, 0.02, dh - 0.02, 8), new T.MeshStandardMaterial({ color: 0x334155, metalness: 0.6 }));
+            const leg = new T.Mesh(legGeo, this._sharedLegMat);
             leg.position.set(x * 0.92 + center[0] * 0.08, (dh - 0.02) / 2, y * 0.92 + center[1] * 0.08);
             g.add(leg);
           }
@@ -515,61 +518,78 @@
       fl.position.y = -0.01;
       g.add(fl);
 
-      // 4. 隔間牆偽彩色垂直投影與建築實體
+      // 4. 隔間牆偽彩色垂直投影與建築實體（批次合併網格 + 頂點色彩，將數百次 Draw Call 壓縮為 1 次）
       const allWalls = LX.cad && LX.cad.allWalls ? LX.cad.allWalls(pr) : (pr.cad?.walls || pr.walls || []);
-      const wallMatRealistic = new T.MeshLambertMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.6, side: T.DoubleSide });
       const edgeMat = new T.LineBasicMaterial({ color: 0x475569 });
-
+      const validWalls = [];
       for (const w of allWalls) {
         const x1 = w.x1 ?? w.p1[0], y1 = w.y1 ?? w.p1[1];
         const x2 = w.x2 ?? w.p2[0], y2 = w.y2 ?? w.p2[1];
-        const len = Math.hypot(x2 - x1, y2 - y1);
-        if (len < 0.1) continue;
-        const h = w.height || room.height || 2.8;
+        if (Math.hypot(x2 - x1, y2 - y1) >= 0.1) validWalls.push({ x1, y1, x2, y2, h: w.height || room.height || 2.8 });
+      }
+      if (validWalls.length) {
+        const useWallFc = Boolean(this.falseColor && this.wallFalseColor && res);
+        const bands = useWallFc ? 4 : 1;
+        const sf = useWallFc ? LX.render.scaleFn(this.app.view.colorMode, res, res.primaryTarget) : null;
+        const colormap = useWallFc ? (this.palette === 'dialux' ? LX.render.dialuxColor : LX.render.turbo) : null;
+        const posArr = new Float32Array(validWalls.length * bands * 6 * 3);
+        const colArr = useWallFc ? new Float32Array(validWalls.length * bands * 6 * 3) : null;
+        const edgeArr = new Float32Array(validWalls.length * 6 * 3);
+        let pi = 0, ci = 0, ei = 0;
 
-        let curWallMat = wallMatRealistic;
-        // 若啟用牆面偽彩色投影，生成垂直照度漸層
-        if (this.falseColor && this.wallFalseColor && res) {
-          const wCanvas = document.createElement('canvas');
-          wCanvas.width = 16;
-          wCanvas.height = 32;
-          const wctx = wCanvas.getContext('2d');
-          const eBot1 = LX.render.sampleLux(res, x1, y1) || 0;
-          const eBot2 = LX.render.sampleLux(res, x2, y2) || 0;
-          const sf = LX.render.scaleFn(this.app.view.colorMode, res, res.primaryTarget);
-          const colormap = this.palette === 'dialux' ? LX.render.dialuxColor : LX.render.turbo;
+        for (let wi = 0; wi < validWalls.length; wi++) {
+          const { x1, y1, x2, y2, h } = validWalls[wi];
+          const eBot1 = useWallFc ? (LX.render.sampleLux(res, x1, y1) || 0) : 0;
+          const eBot2 = useWallFc ? (LX.render.sampleLux(res, x2, y2) || 0) : 0;
 
-          const img = wctx.createImageData(16, 32);
-          for (let j = 0; j < 32; j++) {
-            const vH = j / 31; // 0 是頂部, 1 是底部
-            const hFactor = 0.5 + 0.5 * Math.pow(vH, 0.7);
-            for (let i = 0; i < 16; i++) {
-              const u = i / 15;
-              const eAtBot = eBot1 * (1 - u) + eBot2 * u;
-              const luxEst = eAtBot * hFactor;
-              const [cr, cg, cb] = colormap(sf.t(luxEst));
-              const idx = (j * 16 + i) * 4;
-              img.data[idx] = cr;
-              img.data[idx + 1] = cg;
-              img.data[idx + 2] = cb;
-              img.data[idx + 3] = 220;
+          for (let bi = 0; bi < bands; bi++) {
+            const v0 = bi / bands, v1 = (bi + 1) / bands;
+            const z0 = h * v0, z1 = h * v1;
+            // 三角形 1: (x1,z0,y1) -> (x2,z0,y2) -> (x2,z1,y2)
+            posArr[pi++] = x1; posArr[pi++] = z0; posArr[pi++] = y1;
+            posArr[pi++] = x2; posArr[pi++] = z0; posArr[pi++] = y2;
+            posArr[pi++] = x2; posArr[pi++] = z1; posArr[pi++] = y2;
+            // 三角形 2: (x1,z0,y1) -> (x2,z1,y2) -> (x1,z1,y1)
+            posArr[pi++] = x1; posArr[pi++] = z0; posArr[pi++] = y1;
+            posArr[pi++] = x2; posArr[pi++] = z1; posArr[pi++] = y2;
+            posArr[pi++] = x1; posArr[pi++] = z1; posArr[pi++] = y1;
+
+            if (useWallFc) {
+              const hf0 = 0.5 + 0.5 * Math.pow(1 - v0, 0.7);
+              const hf1 = 0.5 + 0.5 * Math.pow(1 - v1, 0.7);
+              const c10 = colormap(sf.t(eBot1 * hf0));
+              const c20 = colormap(sf.t(eBot2 * hf0));
+              const c21 = colormap(sf.t(eBot2 * hf1));
+              const c11 = colormap(sf.t(eBot1 * hf1));
+              colArr[ci++] = c10[0] / 255; colArr[ci++] = c10[1] / 255; colArr[ci++] = c10[2] / 255;
+              colArr[ci++] = c20[0] / 255; colArr[ci++] = c20[1] / 255; colArr[ci++] = c20[2] / 255;
+              colArr[ci++] = c21[0] / 255; colArr[ci++] = c21[1] / 255; colArr[ci++] = c21[2] / 255;
+              colArr[ci++] = c10[0] / 255; colArr[ci++] = c10[1] / 255; colArr[ci++] = c10[2] / 255;
+              colArr[ci++] = c21[0] / 255; colArr[ci++] = c21[1] / 255; colArr[ci++] = c21[2] / 255;
+              colArr[ci++] = c11[0] / 255; colArr[ci++] = c11[1] / 255; colArr[ci++] = c11[2] / 255;
             }
           }
-          wctx.putImageData(img, 0, 0);
-          const wTex = new T.CanvasTexture(wCanvas);
-          curWallMat = new T.MeshBasicMaterial({ map: wTex, side: T.DoubleSide, transparent: true, opacity: 0.88 });
+          // 邊線：左柱、頂線、右柱
+          edgeArr[ei++] = x1; edgeArr[ei++] = 0; edgeArr[ei++] = y1;
+          edgeArr[ei++] = x1; edgeArr[ei++] = h; edgeArr[ei++] = y1;
+          edgeArr[ei++] = x1; edgeArr[ei++] = h; edgeArr[ei++] = y1;
+          edgeArr[ei++] = x2; edgeArr[ei++] = h; edgeArr[ei++] = y2;
+          edgeArr[ei++] = x2; edgeArr[ei++] = h; edgeArr[ei++] = y2;
+          edgeArr[ei++] = x2; edgeArr[ei++] = 0; edgeArr[ei++] = y2;
         }
 
-        const pw = new T.Mesh(new T.PlaneGeometry(len, h), curWallMat);
-        pw.position.set((x1 + x2) / 2, h / 2, (y1 + y2) / 2);
-        pw.rotation.y = -Math.atan2(y2 - y1, x2 - x1);
-        g.add(pw);
+        const wallGeo = new T.BufferGeometry();
+        wallGeo.setAttribute('position', new T.BufferAttribute(posArr, 3));
+        if (useWallFc) wallGeo.setAttribute('color', new T.BufferAttribute(colArr, 3));
+        else wallGeo.computeVertexNormals();
+        const wallMat = useWallFc
+          ? new T.MeshBasicMaterial({ vertexColors: true, side: T.DoubleSide, transparent: true, opacity: 0.88 })
+          : new T.MeshLambertMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.6, side: T.DoubleSide });
+        g.add(new T.Mesh(wallGeo, wallMat));
 
-        const peg = new T.BufferGeometry().setFromPoints([
-          new T.Vector3(x1, 0, y1), new T.Vector3(x1, h, y1),
-          new T.Vector3(x2, h, y2), new T.Vector3(x2, 0, y2)
-        ]);
-        g.add(new T.Line(peg, edgeMat));
+        const edgeGeo = new T.BufferGeometry();
+        edgeGeo.setAttribute('position', new T.BufferAttribute(edgeArr, 3));
+        g.add(new T.LineSegments(edgeGeo, edgeMat));
       }
 
       // 外周建築牆

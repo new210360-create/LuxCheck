@@ -105,11 +105,11 @@
     const allDesks=LX.cad.allDesks?LX.cad.allDesks(p):(cad?.desks||[]);
     const zoneMode=LX.cad.hasZoneMode?LX.cad.hasZoneMode(p):!!cad;
     $('cadSummary').classList.toggle('hidden',!cad);
-    for(const id of ['roomShape','roomL','roomW','cutL','cutW','polyText','btnApplyPoly'])$(id).disabled=!!cad;
+    for(const id of ['roomShape','roomL','roomW','cutL','cutW','polyText','btnApplyPoly'])$(id).disabled=!!(cad||p.pdfPlan);
     $('roomWp').disabled=!!zoneMode;
     $('roomWp').title=zoneMode?'桌面模式固定桌面 0.75 m，其他地面 0 m':'';
-    $('polyFields').classList.toggle('hidden',!!cad||p.room.shape!=='custom');
-    $('roomShape').closest('.row').classList.toggle('hidden',!!cad);
+    $('polyFields').classList.toggle('hidden',!!(cad||p.pdfPlan)||p.room.shape!=='custom');
+    $('roomShape').closest('.row').classList.toggle('hidden',!!(cad||p.pdfPlan));
     if(cad){$('cadInfo').textContent=`${cad.filename} · ${p.room.L.toFixed(2)} × ${p.room.W.toFixed(2)} m · ${allDesks.length} 個桌面`;$('floorTarget').value=p.floorTarget||100;}
     const section=$('surfaceSection');
     section.classList.toggle('hidden',!app.result);
@@ -134,7 +134,7 @@
         </div>`;
       }
 
-      html += '<p class="hint">桌面 (0.75m) 與地面 (0m) 連動檢核：同時評估桌面平均照度、均齊度 U₀ 與達標覆蓋率（≥80%）。</p><table class="surface-table"><tr><th>區域</th><th>平均 lx</th><th>最小 lx</th><th>U₀</th><th>覆蓋率</th></tr>'+rows.map(([name,s,target,u0,did])=>{const cov=s.coverage??100;const ok=s.n&&s.Eavg>=target&&s.U0>=u0&&(did===''&&name==='地面'?true:cov>=80);return `<tr class="${ok?'surface-ok':'surface-bad'}" ${did?`data-desk-id="${esc(did)}" style="cursor:pointer" title="點擊選取此辦公桌"`:''}><td>${esc(name)}${!s.n?'（無格點）':''}</td><td>${s.n?s.Eavg.toFixed(0):'—'}</td><td>${s.n?s.Emin.toFixed(0):'—'}</td><td>${s.n?s.U0.toFixed(2):'—'}</td><td>${s.n?Math.round(cov)+'%':'—'}</td></tr>`;}).join('')+'</table>';
+      html += '<p class="hint">覆蓋率＝照度達目標值的取樣面積／有效取樣面積。桌面獨立細格取樣、重疊面積不重複計入全部桌面；桌面 (0.75m) 與地面 (0m) 連動檢核：同時評估桌面平均照度、均齊度 U₀ 與達標覆蓋率（≥80%）。</p><table class="surface-table"><tr><th>區域</th><th>平均 lx</th><th>最小 lx</th><th>U₀</th><th>覆蓋率</th></tr>'+rows.map(([name,s,target,u0,did])=>{const cov=s.coverage??100;const ok=s.n&&s.Eavg>=target&&s.U0>=u0&&(did===''&&name==='地面'?true:cov>=80);return `<tr class="${ok?'surface-ok':'surface-bad'}" ${did?`data-desk-id="${esc(did)}" style="cursor:pointer" title="點擊選取此辦公桌"`:''}><td>${esc(name)}${!s.n?'（無格點）':''}</td><td>${s.n?s.Eavg.toFixed(0):'—'}</td><td>${s.n?s.Emin.toFixed(0):'—'}</td><td>${s.n?s.U0.toFixed(2):'—'}</td><td>${s.n?Math.round(cov)+'%':'—'}</td></tr>`;}).join('')+'</table>';
       $('surfaceResults').innerHTML = html;
       $('surfaceResults').querySelectorAll('tr[data-desk-id]').forEach(tr=>{
         tr.onclick=()=>{app.selectedDeskId=tr.dataset.deskId;app.selection.clear();app.onSelectionChanged();};
@@ -154,7 +154,7 @@
           </table>
         </div>`;
       }
-      html += `<p class="hint">目前為整室均勻工作面（高度 ${p.room.wp} m）：達標覆蓋率 <b>${Math.round(r.coverage??100)}%</b>（有效光束覆蓋 ${Math.round(r.beamCoverage??100)}%）。<br>👉 可於左側「辦公桌面配置與套用」點選 <b>➕ 點擊增設辦公桌</b> 或 <b>批次排入辦公桌</b>，立即啟用桌面 0.75m 與地面 0m 分區連動評估。</p>`;
+      html += `<p class="hint">目前為整室均勻工作面（高度 ${p.room.wp} m）：達標覆蓋率 <b>${Math.round(r.coverage??100)}%</b>（達目標80%面積比 ${Math.round(r.beamCoverage??100)}%）。<br>👉 可於左側「辦公桌面配置與套用」點選 <b>➕ 點擊增設辦公桌</b> 或 <b>批次排入辦公桌</b>，立即啟用桌面 0.75m 與地面 0m 分區連動評估。</p>`;
       $('surfaceResults').innerHTML = html;
     }
   }
@@ -191,6 +191,7 @@
     };
     function applyBuiltCad(built,opts){
       const p=app.project,previousCad=p.cad;app.commit();
+      if(p.pdfPlan){p.pdfPlan=null;p.desks=[];}
       p.cad={filename,sourceHash:staged.sourceHash,desks:built.desks,walls:built.walls||[],background:built.background,sourcePaths:staged.paths,sourceWarnings:staged.warnings,ignored:staged.ignored,unit:staged.unit,scale:built.scale,origin:built.origin,roles:opts||options()};
       p.walls=built.walls||[];
       p.calcWalls=opts?.calcWalls!==false;

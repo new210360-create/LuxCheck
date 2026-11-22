@@ -170,6 +170,7 @@
         ctx.restore();
       }
 
+      if(LX.pdfPlanUI) LX.pdfPlanUI.drawBackground(ctx,this,path);
       // 等照度線
       if (v.isolux && res) this.drawIsolux(ctx, res, res.primaryTarget, forPrint);
 
@@ -203,7 +204,7 @@
             const st = deskStatMap.get(desk.id);
             ctx.fillStyle = isDeskSel ? '#fef08a' : (forPrint ? '#075985' : '#e0f2fe');
             ctx.font = 'bold 10px system-ui';
-            ctx.fillText(`${desk.name} · ${Math.round((desk.height ?? 0.75) * 100)}cm`, x + 4, y + 12);
+            ctx.fillText(`${desk.name} · 75cm`, x + 4, y + 12);
             if (st && st.n && b.h * this.scale > 26) {
               const ok = st.Eavg >= (pr.target?.Em || 500) && st.coverage >= 80;
               ctx.fillStyle = forPrint ? (ok ? '#15803d' : '#b91c1c') : (ok ? '#4ade80' : '#fbbf24');

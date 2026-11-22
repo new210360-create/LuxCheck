@@ -48,10 +48,11 @@
 </div>
 
 <h2>1. 檢核結果</h2>
+${p.pdfPlan?`<p class="note">PDF 圖面：${esc(p.pdfPlan.filename)}，第 ${p.pdfPlan.model.page} 頁；每 PDF 點 ${p.pdfPlan.settings.scale} m。分類與比例經匯入核對；燈型為使用者選定配置，非由圖形證明的廠牌配光。桌面 0.75 m，地面 0 m。</p>`:''}
 <table>
 <tr><th>項目</th><th>計算值</th><th>標準要求</th><th>判定</th></tr>
 <tr><td>${res.zoneMode?(res.deskStats.length?'桌面':'地面'):''}維持平均照度 Ē<sub>m</sub></td><td class="n">${fmt(res.Eavg)} lx</td><td>≥ ${res.primaryTarget} lx</td><td>${pass(ev.Em)}</td></tr>
-<tr><td>達標覆蓋率（照度達標面積比）</td><td class="n">${fmt(res.coverage ?? 100, 0)}%</td><td>≥ 80%（光束覆蓋 ${fmt(res.beamCoverage ?? 100, 0)}%）</td><td>${pass(ev.Cov || { ok: (res.coverage ?? 100) >= 80 })}</td></tr>
+<tr><td>達標覆蓋率（照度達標面積比）</td><td class="n">${fmt(res.coverage ?? 100, 0)}%</td><td>≥ 80%（達目標80%面積比 ${fmt(res.beamCoverage ?? 100, 0)}%）</td><td>${pass(ev.Cov || { ok: (res.coverage ?? 100) >= 80 })}</td></tr>
 <tr><td>照度均齊度 U<sub>0</sub> = E<sub>min</sub>/Ē</td><td class="n">${fmt(res.U0, 2)}</td><td>≥ ${res.primaryU0}</td><td>${pass(ev.U0)}</td></tr>
 <tr><td>統一眩光值 UGR（估算）</td><td class="n">${ugr == null ? '—' : fmt(ugr, 1)}</td><td>≤ ${p.target.UGR}</td><td>${pass(ev.UGR)}</td></tr>
 <tr><td>演色性 Ra（最低者）</td><td class="n">${ev.Ra.v == null ? '—' : ev.Ra.v}</td><td>≥ ${p.target.Ra}</td><td>${pass(ev.Ra)}</td></tr>
@@ -59,10 +60,19 @@
 <tr><td>最小 / 最大照度</td><td class="n">${fmt(res.Emin)} / ${fmt(res.Emax)} lx</td><td>—</td><td>—</td></tr>
 <tr><td>直接光 / 間接光（平均）</td><td class="n">${fmt(res.Edirect)} / ${fmt(res.Eind)} lx</td><td>—</td><td>—</td></tr>
 <tr><td>單位照度功率密度</td><td class="n">${fmt(res.lpd100, 2)} W/m²/100 lx</td><td>—</td><td>—</td></tr>
+${(() => {
+  const kwhYr = (res.totalW / 1000) * 2500;
+  const costYr = kwhYr * 4.0;
+  const co2Yr = kwhYr * 0.494;
+  const t8W = res.totalLm / 65;
+  const savePct = t8W > 0 ? Math.max(0, (1 - res.totalW / t8W) * 100) : 0;
+  const saveCost = Math.max(0, ((t8W - res.totalW) / 1000) * 2500 * 4.0);
+  return `<tr><td>預估年耗電 / 電費（10h×250日）</td><td class="n">${fmt(kwhYr, 0)} 度 / NT$ ${fmt(costYr, 0)}</td><td>排碳 ${fmt(co2Yr, 0)} kg CO₂e/年</td><td>較 T8 省 ${fmt(savePct, 0)}%（年省 NT$${fmt(saveCost, 0)}）</td></tr>`;
+})()}
 </table>
 <ul>${advice.map((a) => `<li>${esc(a.t)}</li>`).join('')}</ul>
 
-${res.zoneMode?`<h2>桌面／地面分區照度與覆蓋率</h2><p class="note">${p.cad?`圖檔：${esc(p.cad.filename)}；每 CAD 單位 ${p.cad.scale} m。`:''}桌面高度固定 0.75 m，其他區域為地面 0 m。桌面不套用牆邊排除帶，地面套用排除帶。桌面及地面分別檢核，不將兩種高度混為同一工作面。桌面不計家具遮擋；間接光與 UGR 仍為近似估算。</p>
+${res.zoneMode?`<h2>桌面／地面分區照度與覆蓋率</h2><p class="note">${p.cad?`圖檔：${esc(p.cad.filename)}；每 CAD 單位 ${p.cad.scale} m。`:''}桌面高度固定 0.75 m，其他區域為地面 0 m。達標覆蓋率以照度達到目標值的取樣面積比例估算；桌面獨立細格取樣，全部桌面重疊區不重複計算。桌面不套用牆邊排除帶，地面套用排除帶。桌面及地面分別檢核，不將兩種高度混為同一工作面。桌面不計家具遮擋；間接光與 UGR 仍為近似估算。</p>
 <table><tr><th>區域</th><th>高度</th><th>平均 lx</th><th>最小 lx</th><th>U₀</th><th>達標覆蓋率</th><th>目標 lx / U₀</th><th>判定</th></tr>
 ${[['全部桌面',res.surfaceStats.desk,0.75,p.target.Em,p.target.U0],['地面',res.surfaceStats.floor,0,p.floorTarget||100,0.4],...res.deskStats.map(d=>[d.name,d,0.75,p.target.Em,p.target.U0])].filter(([name,s])=>s.n||name!=='全部桌面'&&name!=='地面').map(([name,s,z,target,u0])=>`<tr><td>${esc(name)}</td><td>${z} m</td><td>${s.n?fmt(s.Eavg):'無格點'}</td><td>${s.n?fmt(s.Emin):'—'}</td><td>${s.n?fmt(s.U0,2):'—'}</td><td>${s.n?fmt(s.coverage??100,0)+'%':'—'}</td><td>${target} / ${u0}</td><td>${pass({ok:s.n>0&&s.Eavg>=target&&s.U0>=u0&&(name==='地面'||(s.coverage??100)>=80)})}</td></tr>`).join('')}</table>`:''}
 <h2>2. ${res.zoneMode?'桌面 0.75 m／地面 0 m':'工作面照度分布（高度 '+p.room.wp+' m）'}</h2>
@@ -76,7 +86,7 @@ ${[['全部桌面',res.surfaceStats.desk,0.75,p.target.Em,p.target.U0],['地面'
 <tr><th>樓地板面積</th><td class="n">${fmt(res.area, 2)} m²</td></tr>
 <tr><th>空間尺寸（外框）</th><td class="n">${fmt(res.bounds.w, 2)} × ${fmt(res.bounds.h, 2)} m</td></tr>
 <tr><th>天花高度</th><td class="n">${p.room.height} m</td></tr>
-<tr><th>工作面高度</th><td class="n">${p.cad?'桌面 0.75 m／地面 0 m':p.room.wp+' m'}</td></tr>
+<tr><th>工作面高度</th><td class="n">${res.zoneMode?'桌面 0.75 m／地面 0 m':p.room.wp+' m'}</td></tr>
 <tr><th>反射率 天花/牆/地</th><td class="n">${Math.round(p.room.rhoC * 100)}% / ${Math.round(p.room.rhoW * 100)}% / ${Math.round(p.room.rhoF * 100)}%</td></tr>
 <tr><th>維護係數 MF</th><td class="n">${p.room.mf}</td></tr>
 </table>

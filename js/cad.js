@@ -236,15 +236,34 @@
     return [...(project?.cad?.desks || []), ...(project?.desks || [])];
   }
   function allWalls(project) {
-    return [...(project?.cad?.walls || []), ...(project?.walls || [])];
+    const raw = [...(project?.cad?.walls || []), ...(project?.walls || [])];
+    if (raw.length <= 1) return raw;
+    const seen = new Set();
+    const out = [];
+    for (let i = 0; i < raw.length; i++) {
+      const w = raw[i];
+      if (!w) continue;
+      const x1 = +(w.x1 ?? w.p1?.[0] ?? 0).toFixed(3);
+      const y1 = +(w.y1 ?? w.p1?.[1] ?? 0).toFixed(3);
+      const x2 = +(w.x2 ?? w.p2?.[0] ?? 0).toFixed(3);
+      const y2 = +(w.y2 ?? w.p2?.[1] ?? 0).toFixed(3);
+      const h = +(w.height ?? 2.8).toFixed(2);
+      const key = (x1 < x2 || (x1 === x2 && y1 <= y2))
+        ? `${x1},${y1},${x2},${y2},${h}`
+        : `${x2},${y2},${x1},${y1},${h}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(w);
+    }
+    return out;
   }
   function hasZoneMode(project) {
-    return Boolean(project?.cad || (project?.desks && project.desks.length > 0));
+    return Boolean(project?.cad || project?.pdfPlan || (project?.desks && project.desks.length > 0));
   }
   function surfaceAt(project,x,y) {
     if(!hasZoneMode(project))return {height:project.room.wp,kind:'uniform',desk:null};
     const desk=allDesks(project).find(d=>LX.calc.pointInPoly(x,y,d.polygon));
-    return {height:desk?(desk.height??0.75):0,kind:desk?'desk':'floor',desk:desk||null};
+    return {height:desk?0.75:0,kind:desk?'desk':'floor',desk:desk||null};
   }
   LX.cad={parse,contours,bounds,build,area,validPolygon,surfaceAt,allDesks,allWalls,hasZoneMode};
 })(window.LX=window.LX||{});

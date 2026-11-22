@@ -150,16 +150,161 @@
     return false;
   }
 
-  /** 單點水平照度（直接光，可納入隔間牆遮光） */
+  /** 建立隔間牆 2D 均勻空間網格索引（DDA 射線加速，將 O(W) 降至 O(√W)） */
+  function buildWallIndex(walls, b) {
+    const n = walls ? walls.length : 0;
+    if (!n) return null;
+    const x1 = new Float64Array(n), y1 = new Float64Array(n);
+    const x2 = new Float64Array(n), y2 = new Float64Array(n);
+    const minX = new Float64Array(n), maxX = new Float64Array(n);
+    const minY = new Float64Array(n), maxY = new Float64Array(n);
+    const h = new Float64Array(n);
+    let gMinX = b.minX, gMaxX = b.maxX, gMinY = b.minY, gMaxY = b.maxY;
+    for (let k = 0; k < n; k++) {
+      const w = walls[k];
+      const ax = w.x1 ?? w.p1[0], ay = w.y1 ?? w.p1[1];
+      const bx = w.x2 ?? w.p2[0], by = w.y2 ?? w.p2[1];
+      x1[k] = ax; y1[k] = ay; x2[k] = bx; y2[k] = by;
+      const loX = ax < bx ? ax : bx, hiX = ax > bx ? ax : bx;
+      const loY = ay < by ? ay : by, hiY = ay > by ? ay : by;
+      minX[k] = loX; maxX[k] = hiX; minY[k] = loY; maxY[k] = hiY;
+      h[k] = w.height ?? 2.8;
+      if (loX < gMinX) gMinX = loX;
+      if (hiX > gMaxX) gMaxX = hiX;
+      if (loY < gMinY) gMinY = loY;
+      if (hiY > gMaxY) gMaxY = hiY;
+    }
+    if (n <= 12) {
+      return { n, useGrid: false, x1, y1, x2, y2, minX, maxX, minY, maxY, h };
+    }
+    gMinX -= 0.05; gMaxX += 0.05; gMinY -= 0.05; gMaxY += 0.05;
+    const gw = Math.max(0.1, gMaxX - gMinX), gh = Math.max(0.1, gMaxY - gMinY);
+    const dim = Math.max(6, Math.min(28, Math.ceil(Math.sqrt(n) * 1.4)));
+    const gx = Math.max(4, Math.round(dim * Math.sqrt(gw / gh)));
+    const gy = Math.max(4, Math.round(dim * Math.sqrt(gh / gw)));
+    const invDx = gx / gw, invDy = gy / gh;
+    const totalCells = gx * gy;
+    const counts = new Uint32Array(totalCells);
+    for (let k = 0; k < n; k++) {
+      const i0 = Math.max(0, Math.min(gx - 1, Math.floor((minX[k] - gMinX) * invDx)));
+      const i1 = Math.max(0, Math.min(gx - 1, Math.floor((maxX[k] - gMinX) * invDx)));
+      const j0 = Math.max(0, Math.min(gy - 1, Math.floor((minY[k] - gMinY) * invDy)));
+      const j1 = Math.max(0, Math.min(gy - 1, Math.floor((maxY[k] - gMinY) * invDy)));
+      for (let j = j0; j <= j1; j++) {
+        const row = j * gx;
+        for (let i = i0; i <= i1; i++) counts[row + i]++;
+      }
+    }
+    const offsets = new Uint32Array(totalCells + 1);
+    for (let c = 0; c < totalCells; c++) offsets[c + 1] = offsets[c] + counts[c];
+    const items = new Uint32Array(offsets[totalCells]);
+    const cursor = new Uint32Array(offsets);
+    for (let k = 0; k < n; k++) {
+      const i0 = Math.max(0, Math.min(gx - 1, Math.floor((minX[k] - gMinX) * invDx)));
+      const i1 = Math.max(0, Math.min(gx - 1, Math.floor((maxX[k] - gMinX) * invDx)));
+      const j0 = Math.max(0, Math.min(gy - 1, Math.floor((minY[k] - gMinY) * invDy)));
+      const j1 = Math.max(0, Math.min(gy - 1, Math.floor((maxY[k] - gMinY) * invDy)));
+      for (let j = j0; j <= j1; j++) {
+        const row = j * gx;
+        for (let i = i0; i <= i1; i++) items[cursor[row + i]++] = k;
+      }
+    }
+    return {
+      n, useGrid: true, x1, y1, x2, y2, minX, maxX, minY, maxY, h,
+      gMinX, gMinY, gx, gy, invDx, invDy, dx: gw / gx, dy: gh / gy,
+      offsets, items, stamp: new Uint32Array(n), curStamp: 0
+    };
+  }
+
+  function isBlockedByWallIdx(sx, sy, sz, ex, ey, ez, wi) {
+    const minRx = sx < ex ? sx : ex, maxRx = sx > ex ? sx : ex;
+    const minRy = sy < ey ? sy : ey, maxRy = sy > ey ? sy : ey;
+    const rx = ex - sx, ry = ey - sy, rz = ez - sz;
+    const wx1 = wi.x1, wy1 = wi.y1, wx2 = wi.x2, wy2 = wi.y2;
+    const wMinX = wi.minX, wMaxX = wi.maxX, wMinY = wi.minY, wMaxY = wi.maxY, wH = wi.h;
+
+    if (!wi.useGrid) {
+      for (let k = 0; k < wi.n; k++) {
+        if (minRx > wMaxX[k] || maxRx < wMinX[k] || minRy > wMaxY[k] || maxRy < wMinY[k]) continue;
+        const cx = wx1[k], cy = wy1[k], dx = wx2[k] - cx, dy = wy2[k] - cy;
+        const d0 = rx * dy - ry * dx;
+        if (d0 > -1e-9 && d0 < 1e-9) continue;
+        const ax = cx - sx, ay = cy - sy;
+        const t = (ax * dy - ay * dx) / d0;
+        if (t <= 0.002 || t >= 0.998) continue;
+        const u = (ax * ry - ay * rx) / d0;
+        if (u > 0.002 && u < 0.998 && (sz + t * rz) <= wH[k]) return true;
+      }
+      return false;
+    }
+
+    let ix = Math.floor((sx - wi.gMinX) * wi.invDx);
+    let iy = Math.floor((sy - wi.gMinY) * wi.invDy);
+    let ix1 = Math.floor((ex - wi.gMinX) * wi.invDx);
+    let iy1 = Math.floor((ey - wi.gMinY) * wi.invDy);
+    if (ix < 0) ix = 0; else if (ix >= wi.gx) ix = wi.gx - 1;
+    if (iy < 0) iy = 0; else if (iy >= wi.gy) iy = wi.gy - 1;
+    if (ix1 < 0) ix1 = 0; else if (ix1 >= wi.gx) ix1 = wi.gx - 1;
+    if (iy1 < 0) iy1 = 0; else if (iy1 >= wi.gy) iy1 = wi.gy - 1;
+
+    let st = ++wi.curStamp;
+    if (st === 0xffffffff) { wi.stamp.fill(0); st = wi.curStamp = 1; }
+    const stamp = wi.stamp, offsets = wi.offsets, items = wi.items, gx = wi.gx;
+
+    const stepX = ix1 > ix ? 1 : ix1 < ix ? -1 : 0;
+    const stepY = iy1 > iy ? 1 : iy1 < iy ? -1 : 0;
+    let tMaxX = stepX ? (((wi.gMinX + (ix + (stepX > 0 ? 1 : 0)) * wi.dx) - sx) / rx) : Infinity;
+    let tMaxY = stepY ? (((wi.gMinY + (iy + (stepY > 0 ? 1 : 0)) * wi.dy) - sy) / ry) : Infinity;
+    const tDeltaX = stepX ? Math.abs(wi.dx / rx) : Infinity;
+    const tDeltaY = stepY ? Math.abs(wi.dy / ry) : Infinity;
+    const maxSteps = Math.abs(ix1 - ix) + Math.abs(iy1 - iy) + 2;
+
+    for (let step = 0; step < maxSteps; step++) {
+      const c = iy * gx + ix;
+      const start = offsets[c], end = offsets[c + 1];
+      for (let p = start; p < end; p++) {
+        const k = items[p];
+        if (stamp[k] === st) continue;
+        stamp[k] = st;
+        if (minRx > wMaxX[k] || maxRx < wMinX[k] || minRy > wMaxY[k] || maxRy < wMinY[k]) continue;
+        const cx = wx1[k], cy = wy1[k], dx = wx2[k] - cx, dy = wy2[k] - cy;
+        const d0 = rx * dy - ry * dx;
+        if (d0 > -1e-9 && d0 < 1e-9) continue;
+        const ax = cx - sx, ay = cy - sy;
+        const t = (ax * dy - ay * dx) / d0;
+        if (t <= 0.002 || t >= 0.998) continue;
+        const u = (ax * ry - ay * rx) / d0;
+        if (u > 0.002 && u < 0.998 && (sz + t * rz) <= wH[k]) return true;
+      }
+      if (ix === ix1 && iy === iy1) break;
+      if (tMaxX < tMaxY) {
+        tMaxX += tDeltaX;
+        ix += stepX;
+        if (ix < 0 || ix >= gx) break;
+      } else {
+        tMaxY += tDeltaY;
+        iy += stepY;
+        if (iy < 0 || iy >= wi.gy) break;
+      }
+    }
+    return false;
+  }
+
+  /** 單點水平照度（直接光，可納入隔間牆遮光；支援傳入 walls 陣列或 buildWallIndex 加速索引） */
   function directAt(sources, x, y, z, walls) {
     let e = 0;
-    for (const s of sources) {
+    const useIdx = walls && typeof walls.n === 'number';
+    const hasWalls = useIdx ? walls.n > 0 : (walls && walls.length > 0);
+    for (let si = 0; si < sources.length; si++) {
+      const s = sources[si];
       const dx = x - s.x, dy = y - s.y, dz = z - s.z;
       if (dz >= 0) continue;
-      if (walls && walls.length && isBlockedByWall(s.x, s.y, s.z, x, y, z, walls)) continue;
+      if (hasWalls) {
+        if (useIdx ? isBlockedByWallIdx(s.x, s.y, s.z, x, y, z, walls) : isBlockedByWall(s.x, s.y, s.z, x, y, z, walls)) continue;
+      }
       const d2 = dx * dx + dy * dy + dz * dz;
       const I = intensityToward(s, dx, dy, dz)[0];
-      e += (I * (-dz / Math.sqrt(d2))) / d2;
+      if (I > 0) e += (I * (-dz / Math.sqrt(d2))) / d2;
     }
     return e;
   }
@@ -190,9 +335,9 @@
     if (nx * ny > 250000) throw Error('計算格點超過 250,000 點，請加大格點間距或縮小空間。');
     const dx = b.w / nx, dy = b.h / ny;
     const values = new Float32Array(nx * ny);
+    const indirect = new Float32Array(nx * ny);
     const heights = new Float32Array(nx * ny);
     const surfaceKinds = new Uint8Array(nx * ny);
-    const deskIds = new Array(nx * ny);
     const floorDirect = zoneMode ? new Float32Array(nx * ny) : null;
     const mask = new Uint8Array(nx * ny); // 0 外部, 1 房間內, 2 計算區（排除牆邊帶）
     const margin = room.margin || 0;
@@ -201,43 +346,72 @@
     const walls = (project.calcWalls !== false && opts.walls !== false && project.view?.walls !== false)
       ? (LX.cad && LX.cad.allWalls ? LX.cad.allWalls(project) : (project.cad?.walls || project.walls || []))
       : [];
+    const wallIdx = buildWallIndex(walls, b);
+    const deskBoxes = zoneMode ? allDesks.map((d) => ({ poly: d.polygon, b: polyBounds(d.polygon), h: d.height ?? 0.75 })) : null;
+    const isRectRoom = poly.length === 4 && Math.abs(polyArea(poly) - b.w * b.h) < 1e-4;
 
     for (let j = 0; j < ny; j++) {
       const y = b.minY + (j + 0.5) * dy;
+      const row = j * nx;
       for (let i = 0; i < nx; i++) {
         const x = b.minX + (i + 0.5) * dx;
-        if (!pointInPoly(x, y, poly)) continue;
-        mask[j * nx + i] = margin > 0 && distToPoly(x, y, poly) < margin ? 1 : 2;
-        const surface = zoneMode && LX.cad ? LX.cad.surfaceAt(project, x, y) : { height: zw, kind: 'uniform' };
-        heights[j * nx + i] = surface.height;
-        surfaceKinds[j * nx + i] = surface.kind === 'desk' ? 1 : 0;
-        deskIds[j * nx + i] = surface.desk?.id || null;
+        if (!isRectRoom && !pointInPoly(x, y, poly)) continue;
+        const idx = row + i;
+        mask[idx] = margin > 0 && distToPoly(x, y, poly) < margin ? 1 : 2;
+        if (!zoneMode) {
+          heights[idx] = zw;
+          surfaceKinds[idx] = 0;
+        } else {
+          let hitDesk = null;
+          for (let d = 0; d < deskBoxes.length; d++) {
+            const db = deskBoxes[d];
+            if (x >= db.b.minX && x <= db.b.maxX && y >= db.b.minY && y <= db.b.maxY && pointInPoly(x, y, db.poly)) {
+              hitDesk = db;
+              break;
+            }
+          }
+          heights[idx] = hitDesk ? hitDesk.h : 0;
+          surfaceKinds[idx] = hitDesk ? 1 : 0;
+        }
       }
     }
 
-    // 直接光（納入隔間牆遮蔽）
+    // 直接光（納入隔間牆 DDA 空間網格加速遮蔽；地面格點共用射線與配光查詢）
     for (const s of sources) {
+      const sx = s.x, sy = s.y, sz = s.z;
       for (let j = 0; j < ny; j++) {
         const yPt = b.minY + (j + 0.5) * dy;
-        const yy = yPt - s.y;
+        const yy = yPt - sy;
+        const yy2 = yy * yy;
+        const row = j * nx;
         for (let i = 0; i < nx; i++) {
-          const idx = j * nx + i;
+          const idx = row + i;
           if (!mask[idx]) continue;
           const xPt = b.minX + (i + 0.5) * dx;
-          const dz = heights[idx] - s.z;
-          if (dz >= 0) continue;
-          if (walls.length && isBlockedByWall(s.x, s.y, s.z, xPt, yPt, heights[idx], walls)) continue;
-          const dz2 = dz * dz;
-          const xx = xPt - s.x;
-          const d2 = xx * xx + yy * yy + dz2;
-          const I = intensityToward(s, xx, yy, dz)[0];
-          if (I > 0) values[idx] += (I * (-dz / Math.sqrt(d2))) / d2;
-          if (floorDirect) {
-            if (!walls.length || !isBlockedByWall(s.x, s.y, s.z, xPt, yPt, 0, walls)) {
-              const fdz = -s.z, fd2 = xx * xx + yy * yy + fdz * fdz;
-              const fi = surfaceKinds[idx] ? intensityToward(s, xx, yy, fdz)[0] : I;
-              if (fi > 0) floorDirect[idx] += (fi * (-fdz / Math.sqrt(fd2))) / fd2;
+          const xx = xPt - sx;
+          const hz = heights[idx];
+          if (floorDirect && hz === 0) {
+            if (sz > 0 && (!wallIdx || !isBlockedByWallIdx(sx, sy, sz, xPt, yPt, 0, wallIdx))) {
+              const fz = -sz, fd2 = xx * xx + yy2 + fz * fz;
+              const I = intensityToward(s, xx, yy, fz)[0];
+              if (I > 0) {
+                const e = (I * (-fz / Math.sqrt(fd2))) / fd2;
+                floorDirect[idx] += e;
+                values[idx] += e;
+              }
             }
+          } else {
+            if (floorDirect && sz > 0 && (!wallIdx || !isBlockedByWallIdx(sx, sy, sz, xPt, yPt, 0, wallIdx))) {
+              const fz = -sz, fd2 = xx * xx + yy2 + fz * fz;
+              const fi = intensityToward(s, xx, yy, fz)[0];
+              if (fi > 0) floorDirect[idx] += (fi * (-fz / Math.sqrt(fd2))) / fd2;
+            }
+            const dz = hz - sz;
+            if (dz >= 0) continue;
+            if (wallIdx && isBlockedByWallIdx(sx, sy, sz, xPt, yPt, hz, wallIdx)) continue;
+            const d2 = xx * xx + yy2 + dz * dz;
+            const I = intensityToward(s, xx, yy, dz)[0];
+            if (I > 0) values[idx] += (I * (-dz / Math.sqrt(d2))) / d2;
           }
         }
       }
@@ -247,38 +421,55 @@
     // 間接光（多房間隔間獨立漫射 Zonal RCR / 全區單室積分球）
     // =========================================================================
     const cell = dx * dy;
-    const Hcav = Math.max(0.1, room.height - zw);
+    const Hcav = Math.max(0.1, room.height - (zoneMode ? 0 : zw));
     const useZonalRcr = walls.length > 0 && opts.zonalRcr !== false;
     let zonesResult = [];
     let EindGlobal = 0;
     let Edsum = 0, nIn = 0;
 
     if (useZonalRcr) {
+      // 預先快取格點右鄰(bit 1)與下鄰(bit 2)是否被隔間牆阻斷，BFS 與周長統計共用 O(1) 查詢
+      const edgeBlocked = new Uint8Array(nx * ny);
+      for (let j = 0; j < ny; j++) {
+        const cy = b.minY + (j + 0.5) * dy;
+        const row = j * nx;
+        for (let i = 0; i < nx; i++) {
+          const idx = row + i;
+          if (!mask[idx]) continue;
+          const cx = b.minX + (i + 0.5) * dx;
+          let flags = 0;
+          if (i + 1 < nx && mask[idx + 1] && isBlockedByWallIdx(cx, cy, 0, cx + dx, cy, 0, wallIdx)) flags |= 1;
+          if (j + 1 < ny && mask[idx + nx] && isBlockedByWallIdx(cx, cy, 0, cx, cy + dy, 0, wallIdx)) flags |= 2;
+          edgeBlocked[idx] = flags;
+        }
+      }
+
       // 1. 利用 BFS 依照隔間牆切分實體獨立房間分區 (Zonal Connected Components)
       const zoneMap = new Int32Array(nx * ny).fill(-1);
+      const q = new Int32Array(nx * ny);
       let nextZone = 0;
       for (let j = 0; j < ny; j++) {
         for (let i = 0; i < nx; i++) {
           const idx = j * nx + i;
           if (!mask[idx] || zoneMap[idx] !== -1) continue;
           const zId = nextZone++;
-          const q = [idx];
+          let qh = 0, qt = 0;
+          q[qt++] = idx;
           zoneMap[idx] = zId;
-          while (q.length) {
-            const cur = q.pop();
-            const ci = cur % nx, cj = Math.floor(cur / nx);
-            const cx = b.minX + (ci + 0.5) * dx, cy = b.minY + (cj + 0.5) * dy;
-            const nbrs = [
-              [ci + 1, cj], [ci - 1, cj], [ci, cj + 1], [ci, cj - 1]
-            ];
-            for (const [ni, nj] of nbrs) {
-              if (ni < 0 || ni >= nx || nj < 0 || nj >= ny) continue;
-              const nidx = nj * nx + ni;
-              if (!mask[nidx] || zoneMap[nidx] !== -1) continue;
-              const ncx = b.minX + (ni + 0.5) * dx, ncy = b.minY + (nj + 0.5) * dy;
-              if (isBlockedByWall(cx, cy, 0, ncx, ncy, 0, walls)) continue;
-              zoneMap[nidx] = zId;
-              q.push(nidx);
+          while (qh < qt) {
+            const cur = q[qh++];
+            const ci = cur % nx, cj = (cur - ci) / nx;
+            if (ci + 1 < nx && mask[cur + 1] && zoneMap[cur + 1] === -1 && !(edgeBlocked[cur] & 1)) {
+              zoneMap[cur + 1] = zId; q[qt++] = cur + 1;
+            }
+            if (ci > 0 && mask[cur - 1] && zoneMap[cur - 1] === -1 && !(edgeBlocked[cur - 1] & 1)) {
+              zoneMap[cur - 1] = zId; q[qt++] = cur - 1;
+            }
+            if (cj + 1 < ny && mask[cur + nx] && zoneMap[cur + nx] === -1 && !(edgeBlocked[cur] & 2)) {
+              zoneMap[cur + nx] = zId; q[qt++] = cur + nx;
+            }
+            if (cj > 0 && mask[cur - nx] && zoneMap[cur - nx] === -1 && !(edgeBlocked[cur - nx] & 2)) {
+              zoneMap[cur - nx] = zId; q[qt++] = cur - nx;
             }
           }
         }
@@ -290,7 +481,7 @@
         zoneStats.push({
           id: z,
           cellCount: 0,
-          boundaryEdges: 0,
+          boundaryLength: 0,
           fluxWP: 0,
           sources: [],
           directSum: 0,
@@ -298,10 +489,11 @@
         });
       }
 
-      // 累計各格點直射通量與邊界周長
+      // 累計各格點直射通量與邊界周長（完全重用 edgeBlocked，零重複射線檢測）
       for (let j = 0; j < ny; j++) {
+        const row = j * nx;
         for (let i = 0; i < nx; i++) {
-          const idx = j * nx + i;
+          const idx = row + i;
           const zId = zoneMap[idx];
           if (zId === -1) continue;
           const zs = zoneStats[zId];
@@ -310,16 +502,10 @@
           zs.fluxWP += dVal * cell;
           zs.directSum += values[idx];
 
-          const cx = b.minX + (i + 0.5) * dx, cy = b.minY + (j + 0.5) * dy;
-          const nbrs = [[i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]];
-          for (const [ni, nj] of nbrs) {
-            if (ni < 0 || ni >= nx || nj < 0 || nj >= ny || !mask[nj * nx + ni] || zoneMap[nj * nx + ni] !== zId) {
-              zs.boundaryEdges++;
-            } else {
-              const ncx = b.minX + (ni + 0.5) * dx, ncy = b.minY + (nj + 0.5) * dy;
-              if (isBlockedByWall(cx, cy, 0, ncx, ncy, 0, walls)) zs.boundaryEdges++;
-            }
-          }
+          if (i + 1 >= nx || !mask[idx + 1] || zoneMap[idx + 1] !== zId || (edgeBlocked[idx] & 1)) zs.boundaryLength += dy;
+          if (i === 0 || !mask[idx - 1] || zoneMap[idx - 1] !== zId || (edgeBlocked[idx - 1] & 1)) zs.boundaryLength += dy;
+          if (j + 1 >= ny || !mask[idx + nx] || zoneMap[idx + nx] !== zId || (edgeBlocked[idx] & 2)) zs.boundaryLength += dx;
+          if (j === 0 || !mask[idx - nx] || zoneMap[idx - nx] !== zId || (edgeBlocked[idx - nx] & 2)) zs.boundaryLength += dx;
         }
       }
 
@@ -339,7 +525,7 @@
               if (z === -1) continue;
               const cx = b.minX + (i + 0.5) * dx, cy = b.minY + (j + 0.5) * dy;
               const dist = Math.hypot(cx - s.x, cy - s.y);
-              if (dist < minDist && !isBlockedByWall(s.x, s.y, s.z, cx, cy, 0, walls)) {
+              if (dist < minDist && !isBlockedByWallIdx(s.x, s.y, s.z, cx, cy, 0, wallIdx)) {
                 minDist = dist;
                 sZone = z;
               }
@@ -356,7 +542,7 @@
       for (const zs of zoneStats) {
         if (!zs.cellCount) continue;
         const zArea = zs.cellCount * cell;
-        const zPerim = zs.boundaryEdges * ((dx + dy) / 2);
+        const zPerim = zs.boundaryLength;
         // Room Cavity Ratio (RCR) = 2.5 * Perimeter * Hcav / Area
         const rcr = zArea > 0 ? (2.5 * zPerim * Hcav) / zArea : 1;
         const zAw = zPerim * Hcav;
@@ -384,7 +570,7 @@
         zs.area = zArea;
         zs.perimeter = zPerim;
         zs.rcr = rcr;
-        zs.fixturesCount = zs.sources.length;
+        zs.fixturesCount = new Set(zs.sources.map(source => source.fixture)).size;
       }
 
       // 4. 將各房間獨立 Eind 疊加至該分區格點
@@ -395,6 +581,7 @@
         Edsum += values[i];
         nIn++;
         values[i] += eind;
+        indirect[i] = eind;
       }
 
       // 整理過濾出有效房間分區清單（依面積排序）
@@ -435,7 +622,7 @@
       const Eind = sources.length ? first / (Atot * (1 - rhoAvg)) : 0;
       EindGlobal = Eind;
       for (let i = 0; i < values.length; i++) {
-        if (mask[i]) { Edsum += values[i]; nIn++; values[i] += Eind; }
+        if (mask[i]) { Edsum += values[i]; nIn++; values[i] += Eind; indirect[i] = Eind; }
       }
     }
 
@@ -449,7 +636,7 @@
       sum += v; n++;
       if (v < mn) mn = v;
       if (v > mx) mx = v;
-      if (v >= deskTarget * 0.95) passN++;
+      if (v >= deskTarget) passN++;
       if (v >= deskTarget * 0.8) beamN++;
     }
     if (!n) {
@@ -458,7 +645,7 @@
         if (!mask[i]) continue;
         const v = values[i];
         sum += v; n++; if (v < mn) mn = v; if (v > mx) mx = v;
-        if (v >= deskTarget * 0.95) passN++;
+        if (v >= deskTarget) passN++;
         if (v >= deskTarget * 0.8) beamN++;
       }
     }
@@ -470,26 +657,52 @@
     // CAD / Manual Desks use actual desk polygons at 0.75 m; remaining samples are at floor level.
     const blank = () => ({ n: 0, sum: 0, Emin: Infinity, Emax: 0, Eavg: 0, U0: 0, passN: 0, beamN: 0, coverage: 0, beamCoverage: 0 });
     const surfaceStats = { desk: blank(), floor: blank() };
-    const deskStats = allDesks.map(d => ({ ...blank(), id: d.id, name: d.name, height: d.height ?? 0.75, manual: !!d.manual }));
-    const deskMap = new Map(deskStats.map(d => [d.id, d]));
+    const deskStats = allDesks.map(d => ({ ...blank(), id: d.id, name: d.name, height: 0.75, manual: !!d.manual }));
     function accumulate(s, v, tgt) {
       if (!s) return;
       s.n++; s.sum += v;
       s.Emin = Math.min(s.Emin, v);
       s.Emax = Math.max(s.Emax, v);
-      if (v >= tgt * 0.95) s.passN++;
+      if (v >= tgt) s.passN++;
       if (v >= tgt * 0.8) s.beamN++;
     }
     if (zoneMode) {
       for (let i = 0; i < values.length; i++) if (mask[i]) {
         // Desk tasks retain edge samples, while wall exclusion applies to floor circulation.
-        if (surfaceKinds[i]) {
-          accumulate(surfaceStats.desk, values[i], deskTarget);
-          accumulate(deskMap.get(deskIds[i]), values[i], deskTarget);
-        } else if (mask[i] === 2) {
+        if (!surfaceKinds[i] && mask[i] === 2) {
           accumulate(surfaceStats.floor, values[i], flTarget);
         }
       }
+      // Separate equal-area desktop quadrature from the display grid. A shared
+      // lattice lets overlapping desks have individual results without counting
+      // their shared area twice in the combined desktop result.
+      const boxes = allDesks.map(d => polyBounds(d.polygon));
+      const small = Math.min(0.2, ...boxes.map(db => Math.min(db.w, db.h)));
+      const deskSpacing = Math.max(Math.sqrt(boxes.reduce((a, db) => a + db.w * db.h, 0) / 200000), Math.min(0.05, small / 4));
+      const seen = new Map();
+      for (let di = 0; di < allDesks.length; di++) {
+        const d = allDesks[di], db = boxes[di], stat = deskStats[di];
+        for (let j = Math.floor(db.minY / deskSpacing); j < Math.ceil(db.maxY / deskSpacing); j++) {
+          for (let i = Math.floor(db.minX / deskSpacing); i < Math.ceil(db.maxX / deskSpacing); i++) {
+            const x = (i + 0.5) * deskSpacing, y = (j + 0.5) * deskSpacing;
+            if (!pointInPoly(x, y, d.polygon) || !pointInPoly(x, y, poly)) continue;
+            const key = i + ',' + j;
+            let v = seen.get(key);
+            if (v === undefined) {
+              const gi = Math.min(nx - 1, Math.max(0, Math.floor((x - b.minX) / dx)));
+              const gj = Math.min(ny - 1, Math.max(0, Math.floor((y - b.minY) / dy)));
+              v = directAt(sources, x, y, 0.75, wallIdx) + indirect[gj * nx + gi];
+              seen.set(key, v);
+              accumulate(surfaceStats.desk, v, deskTarget);
+            }
+            accumulate(stat, v, deskTarget);
+          }
+        }
+        stat.sampleSpacing = deskSpacing;
+        stat.sampleArea = stat.n * deskSpacing * deskSpacing;
+      }
+      surfaceStats.desk.sampleSpacing = deskSpacing;
+      surfaceStats.desk.sampleArea = seen.size * deskSpacing * deskSpacing;
       for (const s of [surfaceStats.desk, surfaceStats.floor, ...deskStats]) {
         s.Eavg = s.n ? s.sum / s.n : 0;
         s.Emin = s.n ? s.Emin : 0;
@@ -503,12 +716,14 @@
     }
 
     let gridMax = 0; for (let i = 0; i < values.length; i++) if (mask[i]) gridMax = Math.max(gridMax, values[i]);
+    const roomArea = polyArea(poly);
     const totalW = project.fixtures.reduce((a, f) => a + (f.on === false ? 0 : f.watts * (f.dim == null ? 1 : f.dim / 100)), 0);
     const totalLm = project.fixtures.reduce((a, f) => a + (f.on === false ? 0 : f.lumens * (f.dim == null ? 1 : f.dim / 100)), 0);
     const ugr = opts.skipUGR ? null : computeUGR(project, sources, EindGlobal, b);
 
     return {
-      grid: { nx, ny, dx, dy, x0: b.minX, y0: b.minY, values, mask, heights, surfaceKinds },
+      grid: { nx, ny, dx, dy, x0: b.minX, y0: b.minY, values, indirect, mask, heights, surfaceKinds },
+      walls,
       surfaceStats, deskStats, gridMax, zoneMode,
       primaryTarget: zoneMode && !allDesks.length ? flTarget : project.target.Em,
       primaryU0: zoneMode && !allDesks.length ? 0.4 : project.target.U0,
@@ -521,20 +736,29 @@
       Eind: EindGlobal,
       zones: zonesResult,
       zonalRcr: useZonalRcr,
-      area: room.polygon ? polyArea(room.polygon) : b.w * b.h,
+      area: roomArea,
       perim: room.polygon ? polyPerimeter(room.polygon) : 2 * (b.w + b.h),
       totalW, totalLm,
-      lpd: (b.w * b.h) > 0 ? totalW / (b.w * b.h) : 0,
-      lpd100: Eavg > 0 && (b.w * b.h) > 0 ? (totalW / (b.w * b.h)) / (Eavg / 100) : 0,
+      lpd: roomArea > 0 ? totalW / roomArea : 0,
+      lpd100: Eavg > 0 && roomArea > 0 ? (totalW / roomArea) / (Eavg / 100) : 0,
       count: project.fixtures.filter((f) => f.on !== false).length,
       ugr,
       sources: sources.length,
       lightSources: sources,
+      walls,
+      wallIdx,
       spacing: Math.max(dx, dy),
     };
   }
 
   /* ---------------- UGR ---------------- */
+  function pointAt(result, x, y, z) {
+    const g = result.grid;
+    const i = Math.floor((x - g.x0) / g.dx), j = Math.floor((y - g.y0) / g.dy);
+    if (i < 0 || j < 0 || i >= g.nx || j >= g.ny) return null;
+    return directAt(result.lightSources, x, y, z, result.wallIdx || result.walls) + g.indirect[j * g.nx + i];
+  }
+
   function guthP(tauDeg, sigmaDeg) {
     const t = tauDeg, s = sigmaDeg;
     const lnP = (35.2 - 0.31889 * t - 1.22 * Math.exp((-2 * t) / 9)) * 1e-3 * s + (21 + 0.26667 * t - 0.002963 * t * t) * 1e-5 * s * s;
@@ -790,7 +1014,7 @@
   }
 
   LX.calc = {
-    compute, autoLayout, layoutOverDesks, fixtureSpacings, makeFixture, defaultMountHeight, directAt, buildSources,
+    compute, pointAt, autoLayout, layoutOverDesks, fixtureSpacings, makeFixture, defaultMountHeight, directAt, buildSources,
     tableFor, baseTable, clearCache,
     polyArea, polyPerimeter, polyBounds, pointInPoly, distToPoly,
   };

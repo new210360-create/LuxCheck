@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LuxCheck 辦公空間照明照度檢核模擬平台</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230c4a6e'/%3E%3Ccircle cx='32' cy='32' r='18' fill='none' stroke='%2338bdf8' stroke-width='5'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%23facc15'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -11,11 +12,13 @@
     <div class="brand"><span class="logo">◎</span> LuxCheck <small>辦公照明照度檢核</small></div>
     <input id="projName" class="proj-name" value="未命名專案" title="專案名稱" />
     <div class="actions">
-      <button id="btnNew" title="新專案">新專案</button>
-      <button id="btnLoadKeelung" class="primary" style="background:#0284c7;border-color:#38bdf8;font-weight:600" title="立即帶入基隆廠施工圖全配：1F格局 + 33盞舞光燈具 + 4組工作桌與接待櫃台">⚡ 帶入基隆廠施工圖全配</button>
-      <button id="btnCad" class="primary" title="匯入 CAD 平面與辦公桌">匯入 CAD</button>
+      <details class="project-menu"><summary>專案</summary><div><button id="btnNew" title="新專案">新專案</button>
+      <button id="btnLoadKeelung" class="primary" style="background:#0284c7;border-color:#38bdf8;font-weight:600" title="立即帶入基隆廠施工圖全配：1F格局 + 33盞舞光燈具 + 4組工作桌與接待櫃台">開啟基隆廠範例</button>
       <button id="btnOpen" title="開啟專案 (.json)">開啟</button>
       <button id="btnSave" title="儲存專案 (.json)">儲存</button>
+      </div></details>
+      <button id="btnCad" class="primary" title="匯入 CAD 平面與辦公桌">匯入 CAD</button>
+      <button id="btnPdfPlan" class="primary" title="讀取 PDF 燈具圖，核對燈具、桌面與牆面">讀取 PDF 燈具圖</button>
       <span class="sep"></span>
       <button id="btnUndo" title="復原 Ctrl+Z">↶</button>
       <button id="btnRedo" title="重做 Ctrl+Y">↷</button>
@@ -29,9 +32,17 @@
     <input type="file" id="fileLib" accept=".json" hidden />
   </header>
 
+  <nav class="workflow" aria-label="工作區導航"><a href="#spaceSettings">空間</a><a href="#deskManageSection">桌面</a><a href="#criteriaSettings">評估目標</a><a href="#fixtureCatalog">燈具庫</a><a href="#layoutSettings">佈燈</a><a href="#drawingArea">模擬圖</a><a href="#assessmentResults">檢核結果</a></nav>
   <div class="layout">
     <!-- ========== 左側：空間 / 標準 / 自動佈燈 ========== -->
     <aside class="panel left">
+      <section id="pdfPlanSummary" class="hidden">
+        <h3>PDF 燈具圖</h3><p id="pdfPlanInfo" class="hint"></p>
+        <label class="chk"><input id="vPdfPlan" type="checkbox" checked />顯示 PDF 原圖疊圖</label>
+        <div class="row"><label>地面目標 lx</label><input id="pdfPlanFloorTarget" type="number" value="100" min="1" max="2000" /></div>
+        <div class="btns"><button id="btnPdfPlanEdit">核對／修正辨識</button></div>
+        <p class="hint">桌面 75 cm，其他地面 0 cm。燈具型號與牆面高度依匯入設定，可再選取燈具調整。</p>
+      </section>
       <section id="cadSummary" class="hidden">
         <h3>CAD 空間與計算面</h3>
         <p id="cadInfo" class="hint"></p>
@@ -74,7 +85,7 @@
         </div>
         <p class="hint">增設辦公桌後自動啟用「桌面 0.75m ＋ 地面 0m」分區計算，並連動評估桌面照度與達標覆蓋率。</p>
       </section>
-      <section>
+      <section id="spaceSettings">
         <h3>空間設定</h3>
         <div class="row"><label>形狀</label>
           <select id="roomShape">
@@ -117,7 +128,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="criteriaSettings">
         <h3>檢核標準 <small>CNS 12112 / EN 12464-1</small></h3>
         <div class="row"><label>空間類型</label><select id="stdSel"></select></div>
         <div class="grid2">
@@ -129,7 +140,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="layoutSettings">
         <h3>自動佈燈</h3>
         <div class="row"><label>燈具</label><select id="autoType"></select></div>
         <div id="autoPreview" class="fx-preview"></div>
@@ -160,7 +171,7 @@
     </aside>
 
     <!-- ========== 中央：視圖 ========== -->
-    <main class="center">
+    <main class="center" id="drawingArea">
       <div class="toolbar">
         <div class="seg" id="toolSeg">
           <button data-tool="select" class="on" title="選取 / 移動燈具或辦公桌 (V)">選取</button>
@@ -215,7 +226,7 @@
 
     <!-- ========== 右側：結果 / 燈具 ========== -->
     <aside class="panel right">
-      <section>
+      <section id="assessmentResults">
         <h3>檢核結果 <span id="overall" class="badge"></span></h3>
         <div class="kpis" id="kpis"></div>
         <details><summary>查看調整建議</summary><ul class="advice" id="advice"></ul></details>
@@ -288,7 +299,7 @@
         <div class="btns"><button id="btnGlobal" class="small">套用至全部燈具</button></div>
       </section>
 
-      <section>
+      <section id="fixtureCatalog">
         <h3>舞光 / 常用燈具庫 <small id="libCount"></small></h3>
         <div class="btns">
           <button id="btnImport" class="primary" title="匯入廠商配光檔 IES / LDT（可多選）">匯入 IES / LDT</button>
@@ -389,6 +400,54 @@
       <div class="cad-footer"><label class="chk"><input id="cadClearFixtures" type="checkbox" checked />套用時清除舊有自訂燈具，改用 CAD 燈具</label><button id="cadApply" class="primary">套用空間、桌面與燈具</button></div>
     </div>
   </dialog>
+  <input id="filePdfPlan" type="file" accept=".pdf,application/pdf" hidden />
+  <dialog id="pdfPlanDlg" class="pdf-plan-dialog">
+    <div class="dlg">
+      <div class="cad-heading"><div><h2>讀取 PDF 燈具圖</h2><p id="pdfPlanFileName" class="hint"></p></div><button id="pdfPlanCancel">取消</button></div>
+      <div class="pdf-plan-layout">
+        <aside class="pdf-plan-options">
+          <div class="row"><label>頁碼</label><input id="pdfPlanPage" type="number" value="1" min="1" /><button id="pdfPlanPageLoad">讀取此頁</button></div>
+          <h3>1. 核對尺度與範圍</h3>
+          <div class="row col"><label>圖紙列印比例</label><select id="pdfPlanRatio"><option value="">請選比例或用兩點校正</option><option value="50">1:50</option><option value="100">1:100</option><option value="150">1:150</option><option value="200">1:200</option><option value="custom">自訂／已校正</option></select></div>
+          <div class="row col"><label>每 PDF 點對應公尺</label><input id="pdfPlanScale" type="number" min="0.000001" step="any" placeholder="由比例或校正計算" /></div>
+          <div class="btns"><button id="pdfPlanCalibrate">點兩點校正</button><input id="pdfPlanKnown" type="number" min="0.001" step="any" placeholder="兩點實際距離 m" aria-label="兩點實際距離公尺" /></div>
+          <label class="chk"><input id="pdfPlanScaleConfirmed" type="checkbox" />已依已知尺寸核對比例</label>
+          <p class="hint">縮放列印會改變紙面比例，請優先用圖上已知距離校正。選取大輪廓後按「設為計算範圍」，或自行圈選。</p>
+          <h3>2. 分類與修正</h3>
+          <button id="pdfPlanRecognize" class="primary">依目前尺度重新辨識</button>
+          <p class="hint">幾何與鄰近文字只提供候選。圖例、椅子或配線可能誤判，請用疊圖核對。</p>
+          <div class="row"><label>篩選</label><select id="pdfPlanFilter"></select></div>
+          <div id="pdfPlanCounts" class="pdf-plan-counts"></div>
+          <div id="pdfPlanObjects" class="pdf-plan-object-list"></div>
+          <div id="pdfPlanSelected" class="hidden">
+            <p id="pdfPlanSelectedInfo" class="hint"></p>
+            <div class="row"><label>分類</label><select id="pdfPlanKind"></select></div>
+            <div class="row col"><label>此燈具型號（可選）</label><select id="pdfPlanTypeOverride"></select></div>
+            <div class="btns"><button id="pdfPlanSame">相同圖形套用分類</button><button id="pdfPlanSetBoundary">設為計算範圍</button></div>
+          </div>
+          <h3>3. 高度與燈型</h3>
+          <div class="grid2"><div class="row"><label>天花高 m</label><input id="pdfPlanCeiling" type="number" value="3" min="1" max="30" step="0.05" /></div><div class="row"><label>燈高 m</label><input id="pdfPlanMount" type="number" value="2.8" min="0.9" max="30" step="0.05" /></div></div>
+          <div class="row"><label>牆高 m</label><input id="pdfPlanWallHeight" type="number" value="2.8" min="0.1" max="30" step="0.05" /></div>
+          <div class="row col"><label>平板／線型燈對應型號</label><select id="pdfPlanPanelType"></select></div>
+          <div class="row col"><label>崁燈對應型號</label><select id="pdfPlanDownlightType"></select></div>
+          <div class="row col"><label>軌道燈對應型號</label><select id="pdfPlanTrackType"></select></div>
+          <p class="hint">符號無法證明品牌、瓦數、流明或配光，請選擇實際型號／匯入廠商配光。桌面固定 0.75 m。</p>
+        </aside>
+        <div class="pdf-plan-preview-area">
+          <div class="pdf-plan-tools" id="pdfPlanTools">
+            <button data-pdf-tool="select" class="on">選取</button><button data-pdf-tool="boundary">圈選範圍</button><button id="pdfPlanFinish">完成圈選</button>
+            <button data-pdf-tool="panel">補平板燈</button><button data-pdf-tool="downlight">補崁燈</button><button data-pdf-tool="track">補軌道燈</button><button data-pdf-tool="desk">框選桌面</button><button data-pdf-tool="wall">補牆線</button>
+            <button id="pdfPlanFit">全頁</button><button id="pdfPlanZoomIn">＋</button><button id="pdfPlanZoomOut">－</button>
+          </div>
+          <canvas id="pdfPlanPreview" width="1200" height="820"></canvas>
+          <p id="pdfPlanHelp" class="hint">滾輪縮放，按住右鍵拖移。黃：平板燈／青：崁燈／紫：軌道燈／藍：桌面／紅：牆／綠：範圍。</p>
+          <div id="pdfPlanPreviewInfo" class="cad-preview-info"></div>
+        </div>
+      </div>
+      <p id="pdfPlanWarning" role="status" class="hint"></p>
+      <div class="cad-footer"><div><label class="chk"><input id="pdfPlanReviewed" type="checkbox" />已核對燈具、桌面、牆面分類及燈型</label><p class="hint">套用將取代目前平面與配置；可用復原回到前一版。未分類物件不帶入模擬。</p></div><button id="pdfPlanApply" class="primary" disabled>套用已核對的圖面</button></div>
+    </div>
+  </dialog>
   <!-- 本機離線套件 -->
   <script src="vendor/dxf-parser.js"></script>
   <script src="vendor/three.min.js"></script>
@@ -398,11 +457,13 @@
   <script src="js/standards.js"></script>
   <script src="js/calc.js"></script>
   <script src="js/cad.js"></script>
+  <script src="js/pdf-plan.js"></script>
   <script src="js/storage.js"></script>
   <script src="js/render2d.js"></script>
   <script src="js/view3d.js"></script>
   <script src="js/report.js"></script>
   <script src="js/main.js"></script>
   <script src="js/cad-ui.js"></script>
+  <script src="js/pdf-plan-ui.js"></script>
 </body>
 </html>
